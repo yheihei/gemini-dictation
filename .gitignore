@@ -1,0 +1,37 @@
+# Build output
+.build/
+build/
+
+# Local scratch space (research notes, logs, UI snapshots)
+.scratch/
+
+# Editor and OS files
+.swiftpm/
+.DS_Store
+*.xcuserstate
+xcuserdata/
+
+# Never publish recordings, logs or credentials created while trying the app
+*.wav
+*.m4a
+*.mp3
+*.aac
+*.aif
+*.aiff
+*.caf
+*.flac
+*.ogg
+*.opus
+*.webm
+*.log
+*.trace
+*.crash
+*.ips
+*.xcresult/
+.env
+.env.*
+*.pem
+*.p12
+*.key
+*.keychain
+*.keychain-db

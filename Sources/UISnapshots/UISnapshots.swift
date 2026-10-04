@@ -1,0 +1,121 @@
+import AppKit
+import DictationCore
+import DictationMac
+import SwiftUI
+
+/// Renders the Settings window and each status panel state to PNG files.
+/// Uses in-memory settings and fake permission state: no UserDefaults, Keychain,
+/// microphone, network or screen-recording access is involved.
+@main
+struct UISnapshots {
+    @MainActor
+    static func main() {
+        let output = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "build/ui-snapshots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        NSApplication.shared.setActivationPolicy(.accessory)
+
+        var written: [String] = []
+        func save<V: View>(_ name: String, _ view: V) {
+            for (suffix, appearance) in [("light", NSAppearance.Name.aqua), ("dark", NSAppearance.Name.darkAqua)] {
+                let url = output.appendingPathComponent("\(name)-\(suffix).png")
+                if Renderer.render(view, appearance: appearance, to: url) {
+                    written.append(url.lastPathComponent)
+                } else {
+                    FileHandle.standardError.write(Data("failed: \(url.lastPathComponent)\n".utf8))
+                }
+            }
+        }
+
+        let settingsModel = SettingsModel(
+            settings: AppSettings(store: InMemoryKeyValueStore()),
+            keys: APIKeyManager(store: InMemorySecretStore(), settings: AppSettings(store: InMemoryKeyValueStore())),
+            permissions: FakePermissions()
+        )
+        // Taller than the real window so the whole scrolling form is visible in one image.
+        save("settings", SettingsView(model: settingsModel, height: 1240))
+
+        for (name, content) in Samples.hudStates {
+            save("hud-\(name)", HUDView(content: content, perform: { _ in }).padding(20))
+        }
+
+        print("Wrote \(written.count) files to \(output.path):")
+        written.sorted().forEach { print("  \($0)") }
+    }
+}
+
+@MainActor
+final class FakePermissions: PermissionStatusProviding {
+    func microphoneStatus() -> MicrophoneAuthorization { .notDetermined }
+    func isAccessibilityTrusted() -> Bool { false }
+    func requestAccessibility() {}
+    func open(_ pane: SystemSettingsPane) {}
+}
+
+@MainActor
+enum Samples {
+    static let model = ModelCatalog.model(for: ModelCatalog.defaultModelID)
+
+    static func content(_ phase: DictationPhase, transcript: String? = nil, canRetry: Bool = false) -> HUDContent {
+        HUDContent.make(
+            phase: phase,
+            elapsed: 12,
+            limit: 300,
+            level: 0.55,
+            transcript: transcript,
+            modelName: model.displayName,
+            targetAppName: "テキストエディット",
+            canRetry: canRetry,
+            shortcut: HotKeyPreset.optionSpace.displayName
+        )!
+    }
+
+    static var hudStates: [(String, HUDContent)] {
+        [
+            ("recording", content(.recording)),
+            ("processing", content(.processing(attempt: 1))),
+            ("retrying", content(.processing(attempt: 2))),
+            ("inserted", content(.inserted)),
+            ("result-focus-changed", content(.resultReady(.focusChanged), transcript: "来週の打ち合わせは水曜日の14時からに変更します。資料は前日までに共有してください。")),
+            ("result-no-accessibility", content(.resultReady(.accessibilityNotGranted), transcript: "テストの文字起こし結果です。")),
+            ("failed-missing-key", content(.failed(.missingAPIKey))),
+            ("failed-auth-retry", content(.failed(.transcription(.authentication("API key expired."))), canRetry: true)),
+            ("failed-microphone", content(.failed(.microphoneDenied))),
+            ("notice-discarded", content(.notice(.recordingDiscarded))),
+        ]
+    }
+}
+
+@MainActor
+enum Renderer {
+    /// Lays the view out in an offscreen window and draws it into a bitmap.
+    static func render<V: View>(_ view: V, appearance: NSAppearance.Name, to url: URL) -> Bool {
+        let hosting = NSHostingView(rootView: view)
+        hosting.appearance = NSAppearance(named: appearance)
+        let size = hosting.fittingSize
+        guard size.width > 0, size.height > 0 else { return false }
+        let window = NSWindow(
+            contentRect: NSRect(x: -20_000, y: -20_000, width: size.width, height: size.height),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearance)
+        window.backgroundColor = appearance == .darkAqua ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.93, alpha: 1)
+        window.contentView = hosting
+        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        hosting.layoutSubtreeIfNeeded()
+
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return false }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        do {
+            try png.write(to: url)
+            return true
+        } catch {
+            return false
+        }
+    }
+}

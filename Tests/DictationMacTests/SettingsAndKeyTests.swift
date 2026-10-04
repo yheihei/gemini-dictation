@@ -10,7 +10,8 @@ struct SettingsAndKeyTests {
     @Test func defaultsAreSafeAndCheap() {
         let settings = AppSettings(store: InMemoryKeyValueStore())
         #expect(settings.selectedModel.id == ModelCatalog.defaultModelID)
-        #expect(settings.hotKeyPreset == .optionSpace)
+        #expect(settings.shortcut == .fn)
+        #expect(!settings.showInDock)
         #expect(settings.storeKeyInKeychain)
         #expect(!settings.keySavedInKeychain)
     }
@@ -19,12 +20,14 @@ struct SettingsAndKeyTests {
         let store = InMemoryKeyValueStore()
         let first = AppSettings(store: store)
         first.modelSelection = "gemini-3.8-flash"
-        first.hotKeyPreset = .controlShiftSpace
+        first.shortcut = .key(controlOptionD)
+        first.showInDock = true
         first.storeKeyInKeychain = false
 
         let second = AppSettings(store: store)
         #expect(second.selectedModel.id == "gemini-3.8-flash")
-        #expect(second.hotKeyPreset == .controlShiftSpace)
+        #expect(second.shortcut == .key(controlOptionD))
+        #expect(second.showInDock)
         #expect(!second.storeKeyInKeychain)
     }
 
@@ -45,22 +48,17 @@ struct SettingsAndKeyTests {
         #expect(AppSettings(store: store).selectedModel.id == ModelCatalog.defaultModelID)
     }
 
-    @Test func changingTheShortcutNotifiesOnce() {
-        let settings = AppSettings(store: InMemoryKeyValueStore())
-        var changes: [HotKeyPreset] = []
-        settings.onHotKeyPresetChange = { changes.append($0) }
-        settings.hotKeyPreset = .optionShiftSpace
-        settings.hotKeyPreset = .optionShiftSpace
-        #expect(changes == [.optionShiftSpace])
-    }
-
     @Test func secretsNeverGoToPreferences() throws {
         let store = InMemoryKeyValueStore()
         let settings = AppSettings(store: store)
         let keys = APIKeyManager(store: InMemorySecretStore(), settings: settings)
         try keys.save("synthetic-test-secret-value", persist: true)
-        for key in ["modelSelection", "customModelID", "hotKeyPreset", "storeAPIKeyInKeychain", "apiKeySavedInKeychain"] {
-            #expect((store.object(forKey: key) as? String)?.contains("synthetic-test-secret") != true)
+        settings.shortcut = .key(controlOptionD)
+        settings.showInDock = true
+        for key in ["modelSelection", "customModelID", "shortcut", "showInDock", "storeAPIKeyInKeychain", "apiKeySavedInKeychain"] {
+            let value = store.object(forKey: key)
+            let text = (value as? String) ?? (value as? Data).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            #expect(!text.contains("synthetic-test-secret"))
         }
         #expect(store.object(forKey: "apiKeySavedInKeychain") as? Bool == true)
     }
@@ -215,9 +213,15 @@ final class FakePermissionProvider: PermissionStatusProviding {
 @Suite("Settings window model")
 struct SettingsModelTests {
     func makeModel(_ permissions: FakePermissionProvider = FakePermissionProvider()) -> (SettingsModel, InMemorySecretStore) {
-        let settings = AppSettings(store: InMemoryKeyValueStore())
+        let harness = ShortcutHarness()
         let secrets = InMemorySecretStore()
-        return (SettingsModel(settings: settings, keys: APIKeyManager(store: secrets, settings: settings), permissions: permissions), secrets)
+        let model = SettingsModel(
+            settings: harness.settings,
+            keys: APIKeyManager(store: secrets, settings: harness.settings),
+            permissions: permissions,
+            shortcuts: harness.controller
+        )
+        return (model, secrets)
     }
 
     @Test func savingClearsTheFieldAndNeverShowsTheKey() {

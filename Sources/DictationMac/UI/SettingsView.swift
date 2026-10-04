@@ -15,6 +15,7 @@ public struct SettingsView: View {
             apiKeySection
             modelSection
             shortcutSection
+            dockSection
             permissionSection
             privacySection
         }
@@ -82,22 +83,61 @@ public struct SettingsView: View {
     }
 
     private var shortcutSection: some View {
-        @Bindable var settings = model.settings
+        let shortcuts = model.shortcuts
         return Section {
-            Picker("録音の開始／停止", selection: $settings.hotKeyPreset) {
-                ForEach(HotKeyPreset.allCases) { preset in
-                    Text(preset.displayName).tag(preset)
+            LabeledContent("録音の開始／停止") {
+                HStack(spacing: 8) {
+                    Text(shortcuts.isRecording ? "キーを押してください…" : shortcuts.shortcut.displayName)
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(shortcuts.isRecording ? Color.accentColor : Color.secondary.opacity(0.4))
+                        )
+                    if shortcuts.isRecording {
+                        Button("キャンセル") { shortcuts.cancelRecording() }
+                    } else {
+                        Button("記録") { shortcuts.startRecording() }
+                            .disabled(shortcuts.changesBlocked)
+                        Button("fn に戻す") { shortcuts.resetToDefault() }
+                            .disabled(shortcuts.changesBlocked || shortcuts.shortcut == .fn)
+                    }
                 }
             }
-            if !model.hotKeyRegistered {
-                Text("このショートカットを登録できませんでした。別の組み合わせを選んでください。")
+            if let feedback = shortcuts.feedback {
+                Text(feedback.text)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(feedback.isError ? Color.red : Color.secondary)
+            }
+            if let status = model.shortcutStatusText {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(model.shortcutStatusIsWarning ? Color.orange : Color.secondary)
+            }
+            if shortcuts.changesBlocked && !shortcuts.isRecording {
+                Text("録音中・文字起こし中は変更できません。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         } header: {
             Text("ショートカット")
         } footer: {
-            Text("録音中と文字起こし中は esc でキャンセルできます。メニューバーのマイクアイコンからも操作できます。")
+            Text("fn だけを押して離すと、約0.35秒後に録音を開始・停止します。fn をほかのキーと一緒に押したとき、長押ししたとき、素早く2回押したときは反応しません。fn キーを使うにはアクセシビリティの許可が必要です。macOS のキーボード設定の「fnキーを押して」（地球儀キー）の動作もそのまま実行されるので、入力ソースの切り替えや絵文字が一緒に出る場合は「何もしない」にしてください。録音中と文字起こし中は esc でキャンセルできます。")
+        }
+    }
+
+    private var dockSection: some View {
+        @Bindable var settings = model.settings
+        return Section {
+            Toggle("Dock にアイコンを表示する", isOn: $settings.showInDock)
+                .onChange(of: settings.showInDock) { _, _ in
+                    model.dockPreferenceChanged()
+                }
+        } header: {
+            Text("表示")
+        } footer: {
+            Text("オフのときはメニューバーだけに表示します。Dock のアイコンをクリックすると設定を開きます。録音中・文字起こし中に切り替えた場合は、終わってから反映します。Dock に固定するかどうかは macOS の Dock の設定で選べます。")
         }
     }
 
@@ -124,7 +164,7 @@ public struct SettingsView: View {
         } header: {
             Text("macOSの権限")
         } footer: {
-            Text("アプリの起動や設定画面を開いただけでは許可を求めません。マイクは最初に録音を始めたときに確認します。アクセシビリティは録音開始時の入力欄へ自動で貼り付けるために使い、「状態を確認」を押したときと録音を始めたときに状態を調べます。このときmacOSがアプリをアクセシビリティの一覧にオフの状態で加えることがあります。許可しない場合は、結果をコピーして手動で貼り付けます。")
+            Text("アプリの起動や設定画面を開いただけでは許可を求めません。マイクは最初に録音を始めたときに確認します。アクセシビリティは、fn キーでの操作と、録音開始時の入力欄への自動貼り付けに使います。状態は「状態を確認」を押したとき、録音を始めたとき、fn キーを使う設定のときに調べます。このときmacOSがアプリをアクセシビリティの一覧にオフの状態で加えることがあります。許可しない場合は、結果をコピーして手動で貼り付けます。")
         }
     }
 

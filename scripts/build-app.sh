@@ -1,11 +1,30 @@
 #!/bin/bash
-# Builds build/GeminiDictation.app with SwiftPM and signs it ad hoc.
+# Builds GeminiDictation.app with SwiftPM and signs it ad hoc.
 # Needs only the Xcode Command Line Tools. Nothing is installed outside this folder.
+#
+#   ./scripts/build-app.sh                                  # build/GeminiDictation.app
+#   APP_PATH=build/next/GeminiDictation.app ./scripts/build-app.sh
+#
+# The script refuses to replace an app bundle that is running right now.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 configuration="${CONFIGURATION:-release}"
-app="build/GeminiDictation.app"
+app="${APP_PATH:-build/GeminiDictation.app}"
+
+if [[ "$app" != *.app ]]; then
+    echo "error: APP_PATH must end with .app" >&2
+    exit 1
+fi
+mkdir -p "$(dirname "$app")"
+target="$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/Contents/MacOS/GeminiDictation"
+for pid in $(pgrep -x GeminiDictation || true); do
+    running="$(ps -o comm= -p "$pid" 2>/dev/null | sed 's/[[:space:]]*$//' || true)"
+    if [[ "$running" == "$target" ]]; then
+        echo "error: $app is running (pid $pid). Quit it first, or set APP_PATH to another location." >&2
+        exit 1
+    fi
+done
 
 swift build -c "$configuration" --product GeminiDictation
 binary="$(swift build -c "$configuration" --show-bin-path)/GeminiDictation"

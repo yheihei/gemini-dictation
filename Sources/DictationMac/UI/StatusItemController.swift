@@ -11,6 +11,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var retry: () -> Void
         var copyLast: () -> Void
         var openSettings: () -> Void
+        var menuWillOpen: () -> Void = {}
     }
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -68,8 +69,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        actions.menuWillOpen()
         let phase = controller.phase
-        let shortcut = settings.hotKeyPreset.displayName
+        let shortcut = settings.shortcut.displayName
         stateItem.title = Self.stateTitle(phase, elapsed: controller.elapsed)
         switch phase {
         case .recording:

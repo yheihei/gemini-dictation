@@ -8,7 +8,10 @@ import Observation
 public final class SettingsModel {
     public let settings: AppSettings
     public let keys: APIKeyManager
+    public let shortcuts: ShortcutController
     @ObservationIgnored private let permissions: PermissionStatusProviding
+    /// Set by the app once the Dock controller exists.
+    @ObservationIgnored var onDockPreferenceChange: @MainActor () -> Void
 
     /// Text typed into the key field. Cleared after saving; the stored key is never shown.
     public var draftKey = ""
@@ -19,12 +22,19 @@ public final class SettingsModel {
     /// macOS list the app (switched off) in System Settings, so opening Settings alone
     /// does not do it.
     public private(set) var accessibilityTrusted: Bool?
-    public var hotKeyRegistered = true
 
-    public init(settings: AppSettings, keys: APIKeyManager, permissions: PermissionStatusProviding) {
+    public init(
+        settings: AppSettings,
+        keys: APIKeyManager,
+        permissions: PermissionStatusProviding,
+        shortcuts: ShortcutController,
+        onDockPreferenceChange: @escaping @MainActor () -> Void = {}
+    ) {
         self.settings = settings
         self.keys = keys
         self.permissions = permissions
+        self.shortcuts = shortcuts
+        self.onDockPreferenceChange = onDockPreferenceChange
     }
 
     /// Reads the microphone status (a preflight that never prompts). Used when Settings opens.
@@ -36,6 +46,30 @@ public final class SettingsModel {
     public func checkPermissions() {
         refreshMicrophoneStatus()
         accessibilityTrusted = permissions.isAccessibilityTrusted()
+        shortcuts.recheckPermission()
+    }
+
+    /// Called when the "show in Dock" switch changes; the value is already saved.
+    public func dockPreferenceChanged() {
+        onDockPreferenceChange()
+    }
+
+    public var shortcutStatusText: String? {
+        if shortcuts.isRecording { return nil }
+        switch shortcuts.status {
+        case .active:
+            return shortcuts.shortcut == .fn ? "fn キーで操作できます。" : nil
+        case .needsAccessibility:
+            return "fn キーを使うにはアクセシビリティの許可が必要です（下の「macOSの権限」）。許可すると数秒で使えるようになります。"
+        case .registrationFailed:
+            return "このショートカットを登録できませんでした。別の組み合わせを記録してください。"
+        case .paused:
+            return nil
+        }
+    }
+
+    public var shortcutStatusIsWarning: Bool {
+        shortcuts.status == .needsAccessibility || shortcuts.status == .registrationFailed
     }
 
     public func saveKey() {

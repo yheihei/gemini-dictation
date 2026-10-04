@@ -33,13 +33,16 @@ public final class AppSettings: ModelProviding {
     enum Keys {
         static let modelSelection = "modelSelection"
         static let customModelID = "customModelID"
-        static let hotKeyPreset = "hotKeyPreset"
+        static let shortcut = "shortcut"
+        /// Written by version 0.1 when the user picked a preset. Read for migration only
+        /// and left in place, so 0.1 keeps its choice if the user goes back to it.
+        static let legacyHotKeyPreset = "hotKeyPreset"
+        static let showInDock = "showInDock"
         static let storeKeyInKeychain = "storeAPIKeyInKeychain"
         static let keySavedInKeychain = "apiKeySavedInKeychain"
     }
 
     @ObservationIgnored private let store: KeyValueStoring
-    @ObservationIgnored public var onHotKeyPresetChange: (@MainActor (HotKeyPreset) -> Void)?
 
     /// A preset model ID, or `customModelTag`.
     public var modelSelection: String {
@@ -50,11 +53,19 @@ public final class AppSettings: ModelProviding {
         didSet { store.set(customModelID, forKey: Keys.customModelID) }
     }
 
-    public var hotKeyPreset: HotKeyPreset {
+    /// Starts and stops a recording. Changed only through `ShortcutController`,
+    /// which registers the new shortcut before saving it.
+    public internal(set) var shortcut: Shortcut {
         didSet {
-            store.set(hotKeyPreset.rawValue, forKey: Keys.hotKeyPreset)
-            if hotKeyPreset != oldValue { onHotKeyPresetChange?(hotKeyPreset) }
+            if let data = try? JSONEncoder().encode(shortcut) {
+                store.set(data, forKey: Keys.shortcut)
+            }
         }
+    }
+
+    /// Show a Dock icon (regular app) instead of running from the menu bar only.
+    public var showInDock: Bool {
+        didSet { store.set(showInDock, forKey: Keys.showInDock) }
     }
 
     /// Whether a newly saved key goes to the Keychain (otherwise memory only).
@@ -72,10 +83,34 @@ public final class AppSettings: ModelProviding {
         self.store = store
         modelSelection = store.object(forKey: Keys.modelSelection) as? String ?? ModelCatalog.defaultModelID
         customModelID = store.object(forKey: Keys.customModelID) as? String ?? ""
-        hotKeyPreset = (store.object(forKey: Keys.hotKeyPreset) as? String).flatMap(HotKeyPreset.init(rawValue:)) ?? .optionSpace
+        shortcut = Self.loadShortcut(from: store)
+        showInDock = store.object(forKey: Keys.showInDock) as? Bool ?? false
         storeKeyInKeychain = store.object(forKey: Keys.storeKeyInKeychain) as? Bool ?? true
         keySavedInKeychain = store.object(forKey: Keys.keySavedInKeychain) as? Bool ?? false
     }
+
+    /// The saved shortcut; otherwise a preset the user explicitly picked in 0.1;
+    /// otherwise the default (fn). 0.1 saved a preset only when the user chose one,
+    /// so users who kept its old default (⌥ Space) move to fn.
+    static func loadShortcut(from store: KeyValueStoring) -> Shortcut {
+        if let data = store.object(forKey: Keys.shortcut) as? Data,
+           let saved = try? JSONDecoder().decode(Shortcut.self, from: data) {
+            return saved
+        }
+        if let legacy = store.object(forKey: Keys.legacyHotKeyPreset) as? String,
+           let modifiers = legacyPresetModifiers[legacy] {
+            return .key(KeyCombo(keyCode: KeyCode.space, modifiers: modifiers, keyLabel: "Space"))
+        }
+        return .default
+    }
+
+    /// The presets offered by 0.1, all on the space bar.
+    static let legacyPresetModifiers: [String: ShortcutModifiers] = [
+        "optionSpace": [.option],
+        "optionShiftSpace": [.option, .shift],
+        "controlShiftSpace": [.control, .shift],
+        "controlOptionCommandSpace": [.control, .option, .command],
+    ]
 
     public var isCustomModel: Bool {
         modelSelection == Self.customModelTag

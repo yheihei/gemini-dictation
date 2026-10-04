@@ -1,40 +1,41 @@
 import Carbon.HIToolbox
+import DictationCore
 import Foundation
 
-/// Shortcut choices for starting/stopping a recording.
-public enum HotKeyPreset: String, CaseIterable, Identifiable, Sendable {
-    case optionSpace
-    case optionShiftSpace
-    case controlShiftSpace
-    case controlOptionCommandSpace
+/// Registration of system-wide key combinations. Replaced by a fake in tests.
+@MainActor
+public protocol HotKeyRegistering: AnyObject {
+    @discardableResult
+    func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, handler: @escaping HotKeyCenter.Handler) -> Bool
+    func unregister(id: UInt32)
+    func isRegistered(id: UInt32) -> Bool
+}
 
-    public var id: String { rawValue }
-
-    public var keyCode: UInt32 { UInt32(kVK_Space) }
-
-    public var carbonModifiers: UInt32 {
-        switch self {
-        case .optionSpace: return UInt32(optionKey)
-        case .optionShiftSpace: return UInt32(optionKey | shiftKey)
-        case .controlShiftSpace: return UInt32(controlKey | shiftKey)
-        case .controlOptionCommandSpace: return UInt32(controlKey | optionKey | cmdKey)
-        }
+/// Carbon modifier bits (`cmdKey`, `shiftKey`, … in HIToolbox) for a shortcut.
+public enum CarbonModifiers {
+    public static func from(_ modifiers: ShortcutModifiers) -> UInt32 {
+        var bits = 0
+        if modifiers.contains(.command) { bits |= cmdKey }
+        if modifiers.contains(.shift) { bits |= shiftKey }
+        if modifiers.contains(.option) { bits |= optionKey }
+        if modifiers.contains(.control) { bits |= controlKey }
+        return UInt32(bits)
     }
 
-    public var displayName: String {
-        switch self {
-        case .optionSpace: return "⌥ Space"
-        case .optionShiftSpace: return "⌥⇧ Space"
-        case .controlShiftSpace: return "⌃⇧ Space"
-        case .controlOptionCommandSpace: return "⌃⌥⌘ Space"
-        }
+    public static func toShortcutModifiers(_ bits: Int) -> ShortcutModifiers {
+        var modifiers: ShortcutModifiers = []
+        if bits & cmdKey != 0 { modifiers.insert(.command) }
+        if bits & shiftKey != 0 { modifiers.insert(.shift) }
+        if bits & optionKey != 0 { modifiers.insert(.option) }
+        if bits & controlKey != 0 { modifiers.insert(.control) }
+        return modifiers
     }
 }
 
 /// System-wide shortcuts through Carbon `RegisterEventHotKey`, which needs no
 /// Accessibility or Input Monitoring permission and only sees the registered combination.
 @MainActor
-public final class HotKeyCenter {
+public final class HotKeyCenter: HotKeyRegistering {
     public typealias Handler = @MainActor () -> Void
 
     public static let escapeKeyCode = UInt32(kVK_Escape)

@@ -46,9 +46,12 @@ final class AppComposition {
     private let controller: DictationController
     private let settingsModel: SettingsModel
     private let hotKeys = HotKeyCenter()
+    private let shortcuts: ShortcutController
     private let settingsWindow: SettingsWindowController
+    private var dock: DockIconController?
     private var hud: HUDController?
     private var statusItem: StatusItemController?
+    private var observers: [NSObjectProtocol] = []
 
     init() {
         let settings = AppSettings()
@@ -57,7 +60,7 @@ final class AppComposition {
         self.settings = settings
         self.keys = keys
         self.inserter = inserter
-        controller = DictationController(
+        let controller = DictationController(
             recorder: SystemAudioRecorder(),
             microphone: SystemMicrophonePermission(),
             apiKeys: keys,
@@ -67,15 +70,43 @@ final class AppComposition {
             inserter: inserter,
             clipboard: SystemClipboardWriter()
         )
-        settingsModel = SettingsModel(settings: settings, keys: keys, permissions: SystemPermissions())
-        settingsWindow = SettingsWindowController(model: settingsModel)
+        self.controller = controller
+        let shortcuts = ShortcutController(
+            settings: settings,
+            hotKeys: hotKeys,
+            hotKeyID: HotKeyID.toggle,
+            fnMonitor: FnKeyMonitor(),
+            keyEvents: LocalShortcutKeyEventSource(),
+            systemShortcuts: CarbonSystemShortcuts(),
+            isTrusted: { AXIsProcessTrusted() },
+            onToggle: { Task { await controller.toggle() } }
+        )
+        self.shortcuts = shortcuts
+        settingsModel = SettingsModel(
+            settings: settings,
+            keys: keys,
+            permissions: SystemPermissions(),
+            shortcuts: shortcuts
+        )
+        let settingsWindow = SettingsWindowController(model: settingsModel)
+        self.settingsWindow = settingsWindow
+        let dock = DockIconController(
+            settings: settings,
+            applier: SystemActivationPolicy(bringSettingsToFront: { settingsWindow.bringToFront() }),
+            isBusy: { controller.phase.isBusy },
+            settingsVisible: { settingsWindow.isVisible }
+        )
+        self.dock = dock
+        settingsModel.onDockPreferenceChange = { dock.preferenceChanged() }
     }
 
     func start(showSettings: Bool) {
         TemporaryAudioFiles.purge()
+        NSApp.applicationIconImage = AppIconRenderer.image()
+        dock?.applyAtLaunch()
         hud = HUDController(
             controller: controller,
-            shortcut: { [settings] in settings.hotKeyPreset.displayName },
+            shortcut: { [settings] in settings.shortcut.displayName },
             perform: { [weak self] action in self?.perform(action) }
         )
         statusItem = StatusItemController(
@@ -86,19 +117,23 @@ final class AppComposition {
                 cancel: { [weak self] in self?.controller.cancel() },
                 retry: { [weak self] in self?.controller.retry() },
                 copyLast: { [weak self] in self?.controller.copyLastTranscript() },
-                openSettings: { [weak self] in self?.showSettings() }
+                openSettings: { [weak self] in self?.showSettings() },
+                menuWillOpen: { [weak self] in self?.shortcuts.recheckPermission() }
             )
         )
         controller.onPhaseChange = { [weak self] phase in
             self?.phaseDidChange(phase)
         }
-        settings.onHotKeyPresetChange = { [weak self] _ in
-            self?.registerToggleHotKey()
-        }
-        registerToggleHotKey()
-        Log.app.notice("launched; key configured: \(self.keys.isConfigured, privacy: .public)")
+        shortcuts.activate()
+        // fn starts working as soon as Accessibility is allowed; re-check when the user comes back.
+        observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.shortcuts.recheckPermission() }
+        })
+        Log.app.notice("launched; key configured: \(self.keys.isConfigured, privacy: .public); shortcut \(self.shortcutKind, privacy: .public): \(self.shortcutStatusName, privacy: .public); dock: \(self.settings.showInDock, privacy: .public)")
 
-        if showSettings || !keys.isConfigured {
+        // Also open Settings when the shortcut cannot work yet (e.g. fn without
+        // Accessibility after switching builds), so the reason is visible.
+        if showSettings || !keys.isConfigured || shortcuts.status != .active {
             self.showSettings()
         }
     }
@@ -121,19 +156,27 @@ final class AppComposition {
         Task { await controller.toggle() }
     }
 
-    private func registerToggleHotKey() {
-        let preset = settings.hotKeyPreset
-        let registered = hotKeys.register(id: HotKeyID.toggle, keyCode: preset.keyCode, modifiers: preset.carbonModifiers) { [weak self] in
-            self?.toggle()
+    /// For logs: only the kind of shortcut, never key details or typing.
+    private var shortcutKind: String {
+        if case .fn = settings.shortcut { return "fn" }
+        return "key"
+    }
+
+    private var shortcutStatusName: String {
+        switch shortcuts.status {
+        case .active: return "active"
+        case .needsAccessibility: return "needsAccessibility"
+        case .registrationFailed: return "registrationFailed"
+        case .paused: return "paused"
         }
-        settingsModel.hotKeyRegistered = registered
-        Log.app.notice("shortcut \(preset.rawValue, privacy: .public) registered: \(registered, privacy: .public)")
     }
 
     private func phaseDidChange(_ phase: DictationPhase) {
         Log.app.info("phase \(phase.logName, privacy: .public)")
         hud?.phaseDidChange(phase)
         statusItem?.update(for: phase)
+        shortcuts.busyStateChanged(isBusy: phase.isBusy)
+        dock?.busyStateChanged(isBusy: phase.isBusy)
         // esc cancels only while recording or waiting for Gemini; otherwise it stays with other apps.
         if phase.isBusy {
             if !hotKeys.isRegistered(id: HotKeyID.cancel) {

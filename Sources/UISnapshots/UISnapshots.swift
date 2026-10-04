@@ -26,13 +26,32 @@ struct UISnapshots {
             }
         }
 
-        let settingsModel = SettingsModel(
-            settings: AppSettings(store: InMemoryKeyValueStore()),
-            keys: APIKeyManager(store: InMemorySecretStore(), settings: AppSettings(store: InMemoryKeyValueStore())),
-            permissions: FakePermissions()
-        )
+        func makeSettingsModel() -> SettingsModel {
+            let settings = AppSettings(store: InMemoryKeyValueStore())
+            let shortcuts = ShortcutController(
+                settings: settings,
+                hotKeys: InertHotKeys(),
+                hotKeyID: 1,
+                fnMonitor: InertFnMonitor(),
+                keyEvents: InertKeyEvents(),
+                systemShortcuts: InertSystemShortcuts(),
+                isTrusted: { false },
+                sleeper: NeverSleeper(),
+                onToggle: {}
+            )
+            shortcuts.activate()
+            return SettingsModel(
+                settings: settings,
+                keys: APIKeyManager(store: InMemorySecretStore(), settings: settings),
+                permissions: FakePermissions(),
+                shortcuts: shortcuts
+            )
+        }
         // Taller than the real window so the whole scrolling form is visible in one image.
-        save("settings", SettingsView(model: settingsModel, height: 1240))
+        save("settings", SettingsView(model: makeSettingsModel(), height: 1500))
+        let recordingModel = makeSettingsModel()
+        recordingModel.shortcuts.startRecording()
+        save("settings-recording-shortcut", SettingsView(model: recordingModel, height: 1500))
 
         for (name, content) in Samples.hudStates {
             save("hud-\(name)", HUDView(content: content, perform: { _ in }).padding(20))
@@ -40,6 +59,38 @@ struct UISnapshots {
 
         print("Wrote \(written.count) files to \(output.path):")
         written.sorted().forEach { print("  \($0)") }
+    }
+}
+
+// Stand-ins that never register hot keys, install event monitors or ask macOS anything.
+@MainActor
+final class InertHotKeys: HotKeyRegistering {
+    func register(id: UInt32, keyCode: UInt32, modifiers: UInt32, handler: @escaping HotKeyCenter.Handler) -> Bool { true }
+    func unregister(id: UInt32) {}
+    func isRegistered(id: UInt32) -> Bool { false }
+}
+
+@MainActor
+final class InertFnMonitor: FnKeyMonitoring {
+    var isRunning: Bool { false }
+    func start(onTap: @escaping @MainActor () -> Void) {}
+    func stop() {}
+}
+
+@MainActor
+final class InertKeyEvents: ShortcutKeyEventSource {
+    func start(_ handler: @escaping @MainActor (ShortcutRecording.Input) -> Void) {}
+    func stop() {}
+}
+
+@MainActor
+final class InertSystemShortcuts: SystemShortcutProviding {
+    func enabledShortcuts() -> Set<SystemShortcut> { [] }
+}
+
+struct NeverSleeper: Sleeping {
+    func sleep(seconds: Double) async throws {
+        throw CancellationError()
     }
 }
 
@@ -65,7 +116,7 @@ enum Samples {
             modelName: model.displayName,
             targetAppName: "テキストエディット",
             canRetry: canRetry,
-            shortcut: HotKeyPreset.optionSpace.displayName
+            shortcut: Shortcut.default.displayName
         )!
     }
 

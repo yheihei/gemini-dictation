@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Carbon.HIToolbox
 import DictationCore
@@ -5,21 +6,55 @@ import Foundation
 import Testing
 @testable import DictationMac
 
-@Suite("Shortcut presets")
-struct HotKeyPresetTests {
-    @Test func everyPresetUsesSpaceWithAModifier() {
-        for preset in HotKeyPreset.allCases {
-            #expect(preset.keyCode == UInt32(kVK_Space))
-            #expect(preset.carbonModifiers != 0)
+@Suite("Key codes and modifier mapping")
+struct KeyMappingTests {
+    @Test func coreKeyCodesMatchTheSDKConstants() {
+        #expect(KeyCode.function == UInt16(kVK_Function))
+        #expect(KeyCode.escape == UInt16(kVK_Escape))
+        #expect(KeyCode.space == UInt16(kVK_Space))
+        #expect(KeyCode.tab == UInt16(kVK_Tab))
+        #expect(KeyCode.jisEisu == UInt16(kVK_JIS_Eisu))
+        #expect(KeyCode.jisKana == UInt16(kVK_JIS_Kana))
+        #expect(KeyCode.ansi3 == UInt16(kVK_ANSI_3))
+        #expect(KeyCode.ansi5 == UInt16(kVK_ANSI_5))
+        #expect(KeyCode.ansiQ == UInt16(kVK_ANSI_Q))
+        let sdkFunctionKeys = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10,
+                               kVK_F11, kVK_F12, kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
+        for (index, code) in sdkFunctionKeys.enumerated() {
+            #expect(KeyCode.functionKeyNames[UInt16(code)] == "F\(index + 1)")
         }
-        #expect(Set(HotKeyPreset.allCases.map(\.displayName)).count == HotKeyPreset.allCases.count)
     }
 
-    @Test func modifierMapping() {
-        #expect(HotKeyPreset.optionSpace.carbonModifiers == UInt32(optionKey))
-        #expect(HotKeyPreset.optionShiftSpace.carbonModifiers == UInt32(optionKey | shiftKey))
-        #expect(HotKeyPreset.controlShiftSpace.carbonModifiers == UInt32(controlKey | shiftKey))
-        #expect(HotKeyPreset.controlOptionCommandSpace.carbonModifiers == UInt32(controlKey | optionKey | cmdKey))
+    @Test func carbonModifierBitsRoundTrip() {
+        #expect(CarbonModifiers.from([.option]) == UInt32(optionKey))
+        #expect(CarbonModifiers.from([.option, .shift]) == UInt32(optionKey | shiftKey))
+        #expect(CarbonModifiers.from([.control, .option, .command]) == UInt32(controlKey | optionKey | cmdKey))
+        let all: ShortcutModifiers = [.control, .option, .shift, .command]
+        #expect(CarbonModifiers.toShortcutModifiers(Int(CarbonModifiers.from(all))) == all)
+        // Unrelated bits (for example Caps Lock) are ignored.
+        #expect(CarbonModifiers.toShortcutModifiers(alphaLock | cmdKey) == [.command])
+    }
+
+    @Test func eventFlagsIgnoreCapsLockFnAndKeypad() {
+        let flags: NSEvent.ModifierFlags = [.capsLock, .function, .numericPad, .option]
+        #expect(KeyEventTranslation.modifiers(flags) == [.option])
+        #expect(KeyEventTranslation.modifiers([.command, .shift, .control]) == [.command, .shift, .control])
+    }
+
+    @Test func keyLabels() {
+        #expect(KeyEventTranslation.label(keyCode: UInt16(kVK_Space), characters: " ") == "Space")
+        #expect(KeyEventTranslation.label(keyCode: UInt16(kVK_F13), characters: nil) == "F13")
+        #expect(KeyEventTranslation.label(keyCode: UInt16(kVK_LeftArrow), characters: "\u{F702}") == "←")
+        #expect(KeyEventTranslation.label(keyCode: UInt16(kVK_ANSI_D), characters: "d") == "D")
+        #expect(KeyEventTranslation.label(keyCode: 0x5D, characters: "¥") == "¥")
+        #expect(KeyEventTranslation.label(keyCode: 0x7F, characters: "\u{1B}") == "Key 127")
+    }
+
+    @Test func fnFlagsChangeCarriesOnlyModifierMetadata() {
+        let change = FnKeyMonitor.FlagsChange(keyCode: KeyCode.function, fnDown: true, otherModifiers: [], timestamp: 12.5)
+        #expect(change.keyCode == 63)
+        #expect(change.fnDown)
+        #expect(change.timestamp == 12.5)
     }
 }
 

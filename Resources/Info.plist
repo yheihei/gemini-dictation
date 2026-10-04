@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.2.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
@@ -28,9 +28,9 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>ショートカットまたはメニューで録音を開始したときだけマイクを使い、その音声をGoogle Gemini APIに送って文字起こしします。</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 yheihei. MIT License.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>ショートカットまたはメニューで録音を開始したときだけマイクを使い、その音声をGoogle Gemini APIに送って文字起こしします。</string>
 </dict>
 </plist>

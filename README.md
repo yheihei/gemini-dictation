@@ -10,12 +10,14 @@ You use your own Gemini API key, and only the audio you explicitly record is sen
 
 ## できること
 
-- ⌥ Space で録音を開始し、もう一度押すと停止して送信
+- fn キーだけを押して離すと録音を開始し、もう一度押して離すと停止して送信
+- 録音の開始・停止に使うキーを設定画面で記録し直せる
 - フィラーや言いよどみを除き、句読点を補った文章にする
 - 録音開始時の入力欄へ貼り付け、クリップボードは元に戻す
 - 入力先が変わっていたら貼り付けず、コピー用のパネルを出す
 - esc でキャンセル、失敗したら同じ録音を再送
 - モデルを選べる（標準は `gemini-3.5-flash-lite`）
+- Dock にアイコンを表示するかどうかを選べる（標準はメニューバーだけ）
 
 ## 送信するデータ
 
@@ -78,26 +80,28 @@ open build/GeminiDictation.app
 
 1. アプリを開くと、メニューバーにマイクのアイコンが出て設定画面が開く
 2. API キーを貼り付けて「保存」を押す
-3. 文字を入れたい欄をクリックしてから ⌥ Space を押す
-4. 初回はマイクの許可を求めるダイアログが出るので、許可してからもう一度 ⌥ Space を押す
-5. 話し終えたら ⌥ Space を押すと、数秒で結果が入力欄に入る
+3. 「macOSの権限」の「許可をリクエスト」を押し、表示された一覧で Gemini Dictation をオンにする
+4. 文字を入れたい欄をクリックしてから fn キーを押して離す
+5. 初回はマイクの許可を求めるダイアログが出るので、許可してからもう一度 fn キーを押して離す
+6. 話し終えたら fn キーを押して離すと、数秒で結果が入力欄に入る
 
-自動で貼り付けるには、アクセシビリティの許可が要る。
-「システム設定」>「プライバシーとセキュリティ」>「アクセシビリティ」で Gemini Dictation をオンにする。
-設定画面の「許可をリクエスト」からも開ける。
-許可していない間は、結果をパネルの「コピー」で受け取り、手で貼り付ける。
+アクセシビリティの許可は、fn キーでの操作と、入力欄への自動貼り付けに使う。
+許可していない間は fn キーが反応しない。
+その間はメニューバーの「録音を開始」か、記録した別のショートカット（⌥ Space など。許可は不要）で操作し、結果はパネルの「コピー」で受け取る。
 
-起動しただけ、設定画面を開いただけでは、マイクやアクセシビリティの許可を求めない。
-アクセシビリティの状態を調べるのは、設定画面で「状態を確認」を押したときと、録音を始めたときだけ。
+起動しただけ、設定画面を開いただけでは、マイクやアクセシビリティの許可を求めるダイアログは出ない。
+アクセシビリティの状態は、「状態を確認」を押したとき、録音を始めたとき、fn キーを使う設定のとき（起動時と、許可を待つ間の3秒ごと）に調べる。
 このとき macOS がアクセシビリティの一覧にアプリをオフの状態で加えることがある。
-キーチェーンを読むのも、録音を始めて API キーが必要になったときだけ。
+キーチェーンを読むのは、録音を始めて API キーが必要になったときだけ。
 
 ## 使い方
 
 | 操作 | 内容 |
 |---|---|
-| ⌥ Space | 録音の開始と停止（設定で変更できる） |
+| fn キーを押して離す | 録音の開始と停止（設定画面で別のキーに変更できる） |
 | esc | 録音中と文字起こし中のキャンセル |
+| 設定画面の「記録」 | 録音の開始・停止に使うキーを記録し直す |
+| 設定画面の「Dock にアイコンを表示する」 | Dock への表示を切り替える |
 | メニューバーのアイコン | 開始、停止、キャンセル、再試行、最後の結果のコピー、設定 |
 | パネルの「再試行」 | 失敗した録音をもう一度送る |
 
@@ -107,6 +111,66 @@ open build/GeminiDictation.app
 対象は 408、429、500、502、503 と、送信前に失敗した接続エラーだけ。
 タイムアウト、504、途中で切れた接続は処理済みで課金されている可能性があるので、自動では再送しない。
 その場合はパネルの「再試行」で送り直せる。
+
+## ショートカット
+
+### fn キー（標準）
+
+fn キー（地球儀キー）だけを押して離すと、約0.35秒後に録音を開始・停止する。
+次の場合は反応しない。
+
+- fn と一緒に、ほかのキー、⌘・⌥・⌃・⇧、クリック、スクロールを使ったとき
+- 0.8秒より長く押したとき
+- 素早く2回押したとき（macOS の「fnキーを2回押す」で始まる音声入力などに任せる）
+
+0.35秒待つのは、2回押しかどうかを見分けるため。
+
+fn キーを使うには、アクセシビリティの許可が必要になる。
+Apple のドキュメントでは、ほかのアプリ向けのキー関連イベントを監視できるのは、アクセシビリティを許可したアプリだけとされている。
+このアプリが見るのは修飾キーの押下と解放だけで、入力した文字は読まない。
+ほかのキーやクリックがあったかどうかは、最後の入力からの経過時間だけで判断する。
+入力監視の許可は求めない。
+
+macOS 側の fn キーの動作は止められない。
+キーボード設定の「fnキーを押して」（キーボードによっては「🌐キーを押して」）が「入力ソースを変更」や「絵文字と記号を表示」のときは、録音の開始・停止と同時にそれも動く。
+気になる場合は「何もしない」にする。
+外付けキーボードによっては fn キーがキーボードの中で処理されて macOS に届かず、使えないことがある。
+
+### ショートカットの記録
+
+設定画面の「記録」を押してから、使いたいキーを押す。
+esc か「キャンセル」で中止する。
+fn キーだけを押して離すか、「fn に戻す」を押すと fn キーに戻る。
+
+- ⌘・⌥・⌃ のいずれかとの組み合わせが必要（F1〜F20 は単独でも使える）
+- ⌘ だけとの組み合わせは使えない（コピーやペーストなど、ほかのアプリと重なるため）
+- esc・英数・かなのキーと、fn とほかのキーの組み合わせは使えない
+- macOS のショートカット（⌃Space、⌘⇧4 など、システム設定で有効になっているものを含む）は使えない
+- 登録できなかったときは、前のショートカットのまま
+- 録音中と文字起こし中は変更できない
+- 記録している間は今のショートカットを止めるので、押しても録音は始まらない
+- 記録中に見るのは、このアプリの設定画面で押したキーだけ
+
+fn 以外のショートカット（記録したキーの組み合わせ）は Carbon の `RegisterEventHotKey` で登録するので、許可は要らない。
+
+### 0.1 からの移行
+
+- 0.1 の設定画面でショートカットを選んでいた場合は、その組み合わせを引き継ぐ
+- 選んでいなかった場合（0.1 の標準の ⌥ Space のまま）は fn キーになる
+- ⌥ Space に戻したいときは「記録」を押してから ⌥ Space を押す
+- 0.1 の設定値は消さないので、0.1 に戻しても以前のショートカットで動く
+
+## Dock への表示
+
+設定画面の「表示」にある「Dock にアイコンを表示する」で切り替える。
+標準はオフで、メニューバーだけに表示する。
+
+- オンにすると Dock とアプリの切り替え（⌘Tab）にアイコンが出る
+- Dock のアイコンをクリックすると設定画面を開く
+- メニューバーのアイコンは、オンでもオフでも使える
+- 録音中と文字起こし中に切り替えたときは、終わってから反映する（入力先のアプリのフォーカスを動かさないため）
+- 設定は再起動しても残る
+- Dock への固定（「Dockに残す」）は macOS の機能で、このアプリは Dock の設定を変えない
 
 ## 整形のルール
 
@@ -139,13 +203,32 @@ open build/GeminiDictation.app
 - 一時的に置く結果には nspasteboard.org の `org.nspasteboard.TransientType` などを付ける（クリップボード履歴アプリ向けの目印）
 - キャンセル後や次の録音の開始後に届いた結果は捨てる
 
-## 再ビルドしたとき
+## 新しいビルドに切り替えるとき
 
-ad hoc 署名なので、再ビルドすると macOS が別のアプリとして扱うことがある。
+このアプリは ad hoc 署名で、署名の指定要件（designated requirement）はバイナリのハッシュ（CDHash）そのものになる。
+macOS が許可の記録を前のビルドのハッシュと結び付けている場合、バンドル ID が同じでも、新しいビルドは許可済みと扱われないことがある。
+中身が変わったビルドはハッシュも変わる（0.1 と 0.2.0 の候補もハッシュが違う）。
+新しいビルドで許可が有効かどうかは、起動して確かめるまで分からない。
+署名の方法を変えて許可を引き継ぐ設定は、このプロジェクトでは行っていない。
 
-- アクセシビリティの一覧にある古い Gemini Dictation を削除し、追加し直す
-- マイクの許可ダイアログがもう一度出ることがある
-- キーチェーンの確認ダイアログが出たら「常に許可」を選ぶ
+切り替えるときは、アプリ自身の「状態を確認」の結果で次の手順を決める。
+
+1. 動いている Gemini Dictation を、メニューバーのアイコンの「終了」で終了する
+2. 新しい `.app` を開き、設定画面の「macOSの権限」で「状態を確認」を押す
+3. アクセシビリティが「許可済み」なら、そのまま使う（権限の操作は要らない）
+4. 「未許可」なら「許可をリクエスト」を押し、一覧の Gemini Dictation をオンにしてから、もう一度「状態を確認」を押す
+5. 一覧ではオンなのに「未許可」のままなら、一覧の Gemini Dictation を「−」で削除し、手順4をやり直す
+
+「許可済み」になると、ショートカット欄に「fn キーで操作できます。」と表示される。
+
+API キーとマイクの確認は、使うときに出たら、その場で選ぶ。
+
+- 保存済みの API キーを読むときにキーチェーンの確認が出ることがある
+- 許可するかどうかと、今回だけか今後も許可するかは、利用者が選ぶ
+- 許可しなかった場合、保存済みのキーは読めないので、設定画面でキーを入れ直すかどうかを選ぶ
+- マイクの確認が出たら、許可するかどうかを選ぶ（許可しないと録音できない）
+
+前のビルドに戻したときも、同じように「状態を確認」の結果で判断する。
 
 API キーを消すときは、設定画面の「削除」を使う。
 アプリを消したあとにキーだけ残った場合は、キーチェーンアクセスで「Gemini Dictation API key」を削除する。
@@ -156,7 +239,10 @@ API キーを消すときは、設定画面の「削除」を使う。
 make test       # 単体テスト
 make snapshots  # 設定画面とパネルを build/ui-snapshots に PNG で描画
 make app        # build/GeminiDictation.app を作る
+APP_PATH=build/next/GeminiDictation.app ./scripts/build-app.sh  # 別の場所に作る
 ```
+
+`scripts/build-app.sh` は、指定した場所のアプリが起動中なら置き換えずに止まる。
 
 テストはマイク、ネットワーク、キーチェーン、macOS の権限を使わない。
 Gemini との通信はモックの HTTP で、録音は合成した WAV で確かめる。
@@ -165,8 +251,8 @@ Command Line Tools だけの環境では、`scripts/test.sh` が Swift Testing �
 
 | パス | 内容 |
 |---|---|
-| `Sources/DictationCore` | Gemini へのリクエスト、応答の解釈、整形の契約、状態遷移、再試行 |
-| `Sources/DictationMac` | 録音、ショートカット、キーチェーン、フォーカス確認、貼り付け、画面 |
+| `Sources/DictationCore` | Gemini へのリクエスト、応答の解釈、整形の契約、状態遷移、再試行、fn キーの判定、ショートカットの検証と記録 |
+| `Sources/DictationMac` | 録音、ショートカットの登録と監視、Dock 表示、キーチェーン、フォーカス確認、貼り付け、画面 |
 | `Sources/GeminiDictation` | アプリのエントリーポイント |
 | `Sources/UISnapshots` | 画面を PNG に描く開発用ツール（アプリには含めない） |
 | `Tests` | Swift Testing の単体テスト |
@@ -182,13 +268,19 @@ Command Line Tools だけの環境では、`scripts/test.sh` が Swift Testing �
 - アクセシビリティを許可したあとの自動貼り付けとフォーカス判定
 - キーチェーンへの保存と読み込み
 - パネルのボタンやメニューを手で操作したときの動き
+- 実際のキーボードでの fn キーの反応（アクセシビリティを許可したときにキーのイベントが届くかを含む）
+- 設定画面でのショートカットの記録を、実際のキー入力で行ったときの動き
+- Dock 表示を切り替えたときの実際の見た目とフォーカスの動き
+
+ショートカットと Dock 表示は、判定と状態の切り替えを単体テストで確かめ、画面は描画して確かめた。
 
 制限
 
 - ⌘V を ANSI 配列の V キーとして送るので、Dvorak などの配列では貼り付けにならないことがある
 - テキスト入力欄を確認できないアプリ（Electron 系の多くなど）では、自動入力せずにコピーでの受け渡しになる
 - 会話や文書を切り替えても同じ入力欄を使い回すアプリでは、処理中の切り替えを検出できないことがある
-- ⌥ Space は Alfred や Raycast の既定のショートカットと重なることがある（設定で変更できる）
+- fn キーは押して離したときに反応するので、押している間だけ録音する使い方には対応していない
+- 記録したショートカットがほかのアプリのショートカットと重なっても、検出できないことがある（macOS のショートカットは検出する）
 - 話しながら文字が出るストリーミングには対応していない
 - ビルドを確認したのは Apple シリコンだけ
 - `gemini-3.5-transcribe` は v1beta の Interactions API を使う（`transcription_config` が v1beta にしかないため）
@@ -197,7 +289,7 @@ Command Line Tools だけの環境では、`scripts/test.sh` が Swift Testing �
 
 ## 参考資料
 
-2026-10-04 に確認した公式ドキュメント。
+Gemini は 2026-10-04、キーボードと Dock は 2026-10-05 に確認した公式ドキュメント。
 
 Google
 
@@ -225,7 +317,17 @@ Apple
 - [nonactivatingPanel](https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/nonactivatingpanel)
 - [LSUIElement](https://developer.apple.com/documentation/bundleresources/information-property-list/lsuielement)
 - [SecItemAdd](https://developer.apple.com/documentation/security/secitemadd(_:_:))
-- `RegisterEventHotKey` は macOS SDK の Carbon ヘッダー `CarbonEvents.h` の説明を参照
+- [addGlobalMonitorForEvents(matching:handler:)](https://developer.apple.com/documentation/appkit/nsevent/addglobalmonitorforevents(matching:handler:))（キー関連イベントの監視にはアクセシビリティの許可が必要）
+- [addLocalMonitorForEvents(matching:handler:)](https://developer.apple.com/documentation/appkit/nsevent/addlocalmonitorforevents(matching:handler:))
+- [NSEvent.ModifierFlags.function](https://developer.apple.com/documentation/appkit/nsevent/modifierflags-swift.struct/function)
+- [secondsSinceLastEventType(_:eventType:)](https://developer.apple.com/documentation/coregraphics/cgeventsource/secondssincelasteventtype(_:eventtype:))
+- [NSApplication.ActivationPolicy](https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy-swift.enum)
+- [setActivationPolicy(_:)](https://developer.apple.com/documentation/appkit/nsapplication/setactivationpolicy(_:))
+- [applicationIconImage](https://developer.apple.com/documentation/appkit/nsapplication/applicationiconimage)
+- [applicationShouldHandleReopen(_:hasVisibleWindows:)](https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldhandlereopen(_:hasvisiblewindows:))
+- [Keyboard settings on Mac](https://support.apple.com/guide/mac-help/kbdm162/mac)（「fnキーを押して」「🌐キーを押して」の選択肢）
+- [Dictate messages and documents on Mac](https://support.apple.com/guide/mac-help/mh40584/mac)（音声入力のショートカット「fnキーを2回押す」）
+- `RegisterEventHotKey` と `CopySymbolicHotKeys` は Carbon ヘッダー `CarbonEvents.h`、`kVK_Function`（0x3F）は `Events.h` の説明を参照
 
 その他
 

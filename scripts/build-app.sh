@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds GeminiDictation.app with SwiftPM and signs it ad hoc.
+# Builds GeminiDictation.app with SwiftPM. Defaults to ad hoc signing.
 # Needs only the Xcode Command Line Tools. Nothing is installed outside this folder.
 #
 #   ./scripts/build-app.sh                                  # build/GeminiDictation.app
@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.."
 
 configuration="${CONFIGURATION:-release}"
 app="${APP_PATH:-build/GeminiDictation.app}"
+identity="${SIGNING_IDENTITY:--}"
 
 if [[ "$app" != *.app ]]; then
     echo "error: APP_PATH must end with .app" >&2
@@ -35,10 +36,13 @@ cp "$binary" "$app/Contents/MacOS/GeminiDictation"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 
-# Ad hoc signature: enough to run locally. macOS ties microphone/Accessibility
-# approval and the Keychain item's access list to this signature, so a rebuilt
-# app may ask again (see README).
-codesign --force --sign - --identifier io.github.yheihei.GeminiDictation "$app"
+# Local builds use ad hoc signing; distribution builds use Hardened Runtime.
+if [[ "$identity" == "-" ]]; then
+    codesign --force --sign - --identifier io.github.yheihei.GeminiDictation "$app"
+else
+    codesign --force --sign "$identity" --identifier io.github.yheihei.GeminiDictation \
+        --options runtime --timestamp --entitlements Resources/GeminiDictation.entitlements "$app"
+fi
 codesign --verify --strict "$app"
 
 echo "Built $app"

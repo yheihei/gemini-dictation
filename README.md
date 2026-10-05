@@ -66,12 +66,12 @@ Google は 2.5 系モデルの利用を既存ユーザーに絞っており、�
 ## ダウンロード
 
 [GitHub Releases](https://github.com/yheihei/gemini-dictation/releases/latest) から、
-`GeminiDictation-v0.2.0-macos-arm64.zip` をダウンロードして展開する。
+`GeminiDictation-v0.2.1-macos-arm64.zip` をダウンロードして展開する。
 Appleシリコン用で、macOS 14 以降に対応する。
 展開した `GeminiDictation.app` を `/Applications` などに移して開く。
 自分でビルドするための Xcode や Command Line Tools は不要。
 
-配布版は ad hoc 署名で、Developer ID 署名・公証は行っていない。
+v0.2.1 以降の配布版は Developer ID で署名し、Apple の公証を受けている。
 初回の API キー・権限の設定は下の「初回の設定」を参照する。
 更新後に fn キーが反応しない場合は「新しいビルドに切り替えるとき」を確認する。
 
@@ -223,11 +223,10 @@ fn 以外のショートカット（記録したキーの組み合わせ）は C
 
 ## 新しいビルドに切り替えるとき
 
-このアプリは ad hoc 署名で、署名の指定要件（designated requirement）はバイナリのハッシュ（CDHash）そのものになる。
-macOS が許可の記録を前のビルドのハッシュと結び付けている場合、バンドル ID が同じでも、新しいビルドは許可済みと扱われないことがある。
-中身が変わったビルドはハッシュも変わる（0.1 と 0.2.0 の候補もハッシュが違う）。
-新しいビルドで許可が有効かどうかは、起動して確かめるまで分からない。
-署名の方法を変えて許可を引き継ぐ設定は、このプロジェクトでは行っていない。
+v0.2.1 以降の配布版は Developer ID 署名を使う。
+`make app` で作るローカル版と v0.2.0 の配布版は ad hoc 署名で、ビルドごとに署名の指定要件が変わる。
+ローカル版や v0.2.0 から配布版に切り替えると、macOS の権限や保存済み API キーへのアクセスの確認が出ることがある。
+新しいビルドで許可が有効かどうかは、アプリの「状態を確認」で確かめる。
 
 切り替えるときは、アプリ自身の「状態を確認」の結果で次の手順を決める。
 
@@ -261,6 +260,17 @@ APP_PATH=build/next/GeminiDictation.app ./scripts/build-app.sh  # 別の場所�
 ```
 
 `scripts/build-app.sh` は、指定した場所のアプリが起動中なら置き換えずに止まる。
+
+配布用 ZIP は、Developer ID Application 証明書と保存済みの `notarytool` 認証プロファイルを使って作る。
+
+```sh
+SIGNING_IDENTITY='Developer ID Application: 開発者名 (TEAM_ID)' \
+NOTARY_PROFILE='your-notary-profile' ./scripts/release-app.sh
+```
+
+このスクリプトは正式署名、Apple 公証、チケットの添付、Gatekeeper の検証を行い、
+`build/releases/v<バージョン>/` に ZIP と `SHA256SUMS.txt` を作る。
+公証または検証に失敗した場合は止まる。認証情報や証明書はリポジトリに保存しない。
 
 テストはマイク、ネットワーク、キーチェーン、macOS の権限を使わない。
 Gemini との通信はモックの HTTP で、録音は合成した WAV で確かめる。

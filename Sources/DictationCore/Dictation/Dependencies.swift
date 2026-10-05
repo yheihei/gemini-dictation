@@ -70,7 +70,7 @@ public enum TargetCheck: Equatable, Sendable {
 
 @MainActor
 public protocol FocusTracking: AnyObject {
-    func captureTarget() -> InsertionTarget?
+    func captureTarget() async -> InsertionTarget?
     func check(_ target: InsertionTarget?) -> TargetCheck
 }
 

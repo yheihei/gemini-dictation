@@ -251,13 +251,15 @@ final class MockModels: ModelProviding {
 
 @MainActor
 final class MockFocus: FocusTracking {
+    var captureGate: Gate<Bool>?
     var captured: InsertionTarget? = InsertionTarget(processID: 4242, bundleIdentifier: "com.example.editor", appName: "Editor", focusToken: nil)
     var checkResult: TargetCheck = .ok
     private(set) var captureCount = 0
     private(set) var checkCount = 0
 
-    func captureTarget() -> InsertionTarget? {
+    func captureTarget() async -> InsertionTarget? {
         captureCount += 1
+        if let captureGate { _ = await captureGate.wait() }
         return captured
     }
 

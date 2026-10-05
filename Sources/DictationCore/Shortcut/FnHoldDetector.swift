@@ -33,6 +33,7 @@ public struct FnHoldDetector: Sendable {
     private var tainted = false
     private var fired = false
     private var tapAllowedForPress = false
+    private var lastModifierStateAt: TimeInterval?
 
     /// 押した瞬間の状態も保存し、開始した長押しの解放では停止しないようにする。
     public var allowsTap = false {
@@ -46,6 +47,26 @@ public struct FnHoldDetector: Sendable {
     }
 
     public var isFnHeld: Bool { downAt != nil }
+
+    /// イベントのキーコードに依存せず、修飾キーの状態の変化を処理する。
+    /// 状態を読み直すと、届かなかった fn の解放も回収できる。
+    public mutating func handleModifierState(
+        fnDown: Bool,
+        otherModifiers: ShortcutModifiers,
+        at time: TimeInterval,
+        lastOtherInputAt: TimeInterval?
+    ) -> Action {
+        // A delayed AppKit event must not undo a newer hardware-state sample.
+        guard time >= (lastModifierStateAt ?? -.infinity) else { return .none }
+        defer { lastModifierStateAt = time }
+        if fnDown, !isFnHeld {
+            return handle(.fnDown(otherModifiers: otherModifiers, at: time))
+        }
+        if !fnDown, isFnHeld {
+            return handle(.fnUp(at: time, lastOtherInputAt: lastOtherInputAt))
+        }
+        return handle(.modifiersChanged(otherModifiers: otherModifiers))
+    }
 
     public mutating func handle(_ input: Input) -> Action {
         switch input {
@@ -91,5 +112,6 @@ public struct FnHoldDetector: Sendable {
         tainted = false
         fired = false
         tapAllowedForPress = false
+        lastModifierStateAt = nil
     }
 }

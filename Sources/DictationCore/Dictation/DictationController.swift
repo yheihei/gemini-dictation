@@ -158,7 +158,9 @@ public final class DictationController {
             return
         }
 
-        target = focus.captureTarget()
+        let capturedTarget = await focus.captureTarget()
+        guard current == session, !Task.isCancelled else { return }
+        target = capturedTarget
         targetAppName = target?.appName
         do {
             try recorder.startRecording()
@@ -203,6 +205,11 @@ public final class DictationController {
     }
 
     public func cancel() {
+        if isStarting {
+            session += 1
+            dismiss()
+            return
+        }
         switch phase {
         case .recording:
             stopMeter()

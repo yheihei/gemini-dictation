@@ -5,6 +5,21 @@ import Testing
 @MainActor
 @Suite("Dictation state machine")
 struct DictationControllerTests {
+    @Test func cancellationDuringWebAccessibilityPreparationNeverStartsTheMicrophone() async {
+        let harness = Harness(transcriber: ScriptedTranscriber([]))
+        let gate = Gate<Bool>()
+        harness.focus.captureGate = gate
+        let starting = Task { await harness.controller.start() }
+        await gate.waitForArrivals(1)
+        #expect(harness.recorder.startCount == 0)
+        harness.controller.cancel()
+        await gate.open(with: true)
+        await starting.value
+        #expect(harness.recorder.startCount == 0)
+        #expect(harness.controller.phase == .idle)
+        #expect(harness.controller.targetAppName == nil)
+    }
+
     @Test func fnHoldStartsAndANewTapStopsRecording() async {
         let transcriber = GatedTranscriber()
         let harness = Harness(transcriber: transcriber)

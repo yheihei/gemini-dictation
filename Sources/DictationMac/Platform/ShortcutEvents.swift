@@ -76,20 +76,23 @@ public protocol FnKeyMonitoring: AnyObject {
     func stop()
 }
 
-/// 修飾キーの変化だけで fn の長押しを監視する。入力した文字は読まない。
+/// fn と修飾キーの状態、ほかの操作の時刻だけを監視する。入力した文字は読まない。
 ///
 /// - A global monitor sees events sent to other apps. Per Apple's documentation,
 ///   key-related events reach it only while this app is trusted for Accessibility.
 /// - A local monitor covers this app's own windows.
 /// - Monitors only observe: macOS still performs its own fn / Globe action.
-/// - Whether another key, click or scroll happened during the press comes from
-///   `CGEventSource.secondsSinceLastEventType`, which reports only elapsed time.
+/// - Key, click and scroll events contribute only their timestamp. Fn itself is excluded.
+/// - Sampling modifier state recovers a release that AppKit did not deliver.
 @MainActor
 public final class FnKeyMonitor: FnKeyMonitoring {
     private var monitors: [Any] = []
     private var detector = FnHoldDetector()
     private var onHold: (@MainActor () -> Void)?
     private var confirmTask: Task<Void, Never>?
+    private var modifierTask: Task<Void, Never>?
+    private var lastOtherInputAt: TimeInterval?
+    private var waitsForRelease = false
 
     public init() {}
 
@@ -105,16 +108,31 @@ public final class FnKeyMonitor: FnKeyMonitoring {
     public func start(onHold: @escaping @MainActor () -> Void) {
         stop()
         self.onHold = onHold
-        let global = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let change = FlagsChange(event)
-            Self.onMain { self?.handle(change) }
+        waitsForRelease = CGEventSource.flagsState(.hidSystemState).contains(.maskSecondaryFn)
+        let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+        let global = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+            let input = MonitorInput(event)
+            Self.onMain { self?.handle(input) }
         }
-        let local = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            let change = FlagsChange(event)
-            Self.onMain { self?.handle(change) }
+        let local = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            let input = MonitorInput(event)
+            Self.onMain { self?.handle(input) }
             return event
         }
         monitors = [global, local].compactMap { $0 }
+        modifierTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let flags = NSEvent.ModifierFlags(rawValue: UInt(CGEventSource.flagsState(.hidSystemState).rawValue))
+                self.handle(FlagsChange(
+                    keyCode: KeyCode.function,
+                    fnDown: flags.contains(.function),
+                    otherModifiers: KeyEventTranslation.modifiers(flags),
+                    timestamp: ProcessInfo.processInfo.systemUptime
+                ))
+            }
+        }
     }
 
     public func stop() {
@@ -124,8 +142,36 @@ public final class FnKeyMonitor: FnKeyMonitoring {
         monitors.removeAll()
         confirmTask?.cancel()
         confirmTask = nil
+        modifierTask?.cancel()
+        modifierTask = nil
+        lastOtherInputAt = nil
+        waitsForRelease = false
         detector.reset()
         onHold = nil
+    }
+
+    enum MonitorInput: Sendable {
+        case modifiers(FlagsChange)
+        case otherInput(TimeInterval)
+        case ignored
+
+        init(_ event: NSEvent) {
+            if event.type == .flagsChanged {
+                self = .modifiers(FlagsChange(event))
+            } else if event.type == .keyDown, event.keyCode == KeyCode.function {
+                self = .ignored
+            } else {
+                self = .otherInput(event.timestamp)
+            }
+        }
+    }
+
+    private func handle(_ input: MonitorInput) {
+        switch input {
+        case .modifiers(let change): handle(change)
+        case .otherInput(let time): lastOtherInputAt = max(lastOtherInputAt ?? time, time)
+        case .ignored: break
+        }
     }
 
     /// The parts of a modifier-change event the detector needs.
@@ -154,20 +200,24 @@ public final class FnKeyMonitor: FnKeyMonitoring {
     }
 
     private func handle(_ change: FlagsChange) {
-        let input: FnHoldDetector.Input
-        if change.keyCode == KeyCode.function {
-            Log.app.debug("fn modifier changed; held: \(change.fnDown, privacy: .public)")
-            input = change.fnDown
-                ? .fnDown(otherModifiers: change.otherModifiers, at: change.timestamp)
-                : .fnUp(at: change.timestamp, lastOtherInputAt: Self.lastOtherInputTime())
-        } else {
-            input = .modifiersChanged(otherModifiers: change.otherModifiers)
+        if waitsForRelease {
+            if !change.fnDown { waitsForRelease = false }
+            return
         }
-        if case .fnUp = input {
+        if change.fnDown != detector.isFnHeld {
+            Log.app.debug("fn modifier changed; held: \(change.fnDown, privacy: .public)")
+        }
+        let action = detector.handleModifierState(
+            fnDown: change.fnDown,
+            otherModifiers: change.otherModifiers,
+            at: change.timestamp,
+            lastOtherInputAt: lastOtherInputAt
+        )
+        if !detector.isFnHeld {
             confirmTask?.cancel()
             confirmTask = nil
         }
-        perform(detector.handle(input))
+        perform(action)
     }
 
     private func perform(_ action: FnHoldDetector.Action) {
@@ -187,20 +237,10 @@ public final class FnKeyMonitor: FnKeyMonitoring {
                 if now < time {
                     self.perform(.confirmAt(time))
                 } else {
-                    self.perform(self.detector.confirm(at: now, lastOtherInputAt: Self.lastOtherInputTime()))
+                    self.perform(self.detector.confirm(at: now, lastOtherInputAt: self.lastOtherInputAt))
                 }
             }
         }
-    }
-
-    /// When the most recent key press, click or scroll happened (uptime clock).
-    static func lastOtherInputTime() -> TimeInterval? {
-        let types: [CGEventType] = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
-        let ages = types
-            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
-            .filter { $0.isFinite && $0 >= 0 }
-        guard let youngest = ages.min() else { return nil }
-        return ProcessInfo.processInfo.systemUptime - youngest
     }
 
     private nonisolated static func onMain(_ work: @escaping @MainActor () -> Void) {

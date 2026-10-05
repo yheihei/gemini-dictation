@@ -56,6 +56,30 @@ struct KeyMappingTests {
         #expect(change.fnDown)
         #expect(change.timestamp == 12.5)
     }
+
+    @Test func fnKeyDownIsNotCountedAsAnotherKey() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [.function], timestamp: 12.5,
+            windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: KeyCode.function
+        ))
+        if case .ignored = FnKeyMonitor.MonitorInput(event) {} else {
+            Issue.record("Fn itself must not block a stopping tap")
+        }
+    }
+
+    @Test func anotherKeyContributesOnlyItsOriginalTimestamp() throws {
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 12.5,
+            windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+            isARepeat: false, keyCode: UInt16(kVK_ANSI_A)
+        ))
+        if case .otherInput(let time) = FnKeyMonitor.MonitorInput(event) {
+            #expect(time == 12.5)
+        } else {
+            Issue.record("Other typing must prevent Fn combinations")
+        }
+    }
 }
 
 @Suite("Status panel content")
@@ -241,6 +265,14 @@ struct FocusDecisionTests {
 
     @Test func passwordFieldsAreRefused() {
         #expect(decide(secure: true) == .secureField)
+    }
+
+    @Test func customEditableGroupsCanIdentifyATextInput() {
+        #expect(FocusDecision.isTextInput(role: "AXGroup", hasEditableText: true))
+        #expect(!FocusDecision.isTextInput(role: "AXGroup", hasEditableText: false))
+        // A web area may report a selection even when the selected text is read-only.
+        #expect(!FocusDecision.isTextInput(role: "AXWebArea", hasEditableText: true))
+        #expect(!FocusDecision.isTextInput(role: "AXButton", hasEditableText: true))
     }
 
     @Test func withoutAccessibilityTheInserterDecides() {

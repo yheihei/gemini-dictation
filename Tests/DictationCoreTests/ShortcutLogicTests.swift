@@ -6,6 +6,43 @@ import Testing
 struct FnHoldDetectorTests {
     var detector = FnHoldDetector()
 
+    @Test mutating func samplingRecoversAMissingReleaseBeforeTheNextStoppingTap() {
+        #expect(detector.handleModifierState(fnDown: true, otherModifiers: [], at: 10, lastOtherInputAt: nil) == .confirmAt(10.5))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .fire)
+        detector.allowsTap = true
+        // No AppKit fn-up event arrived. The current modifier state provides it.
+        #expect(detector.handleModifierState(fnDown: false, otherModifiers: [], at: 11, lastOtherInputAt: nil) == .none)
+        #expect(!detector.isFnHeld)
+        _ = detector.handleModifierState(fnDown: true, otherModifiers: [], at: 15, lastOtherInputAt: nil)
+        #expect(detector.handleModifierState(fnDown: false, otherModifiers: [], at: 15.1, lastOtherInputAt: nil) == .fire)
+    }
+
+    @Test mutating func repeatedModifierSamplesDoNotRestartOrDuplicateTheHold() {
+        _ = detector.handleModifierState(fnDown: true, otherModifiers: [], at: 10, lastOtherInputAt: nil)
+        #expect(detector.handleModifierState(fnDown: true, otherModifiers: [], at: 10.4, lastOtherInputAt: nil) == .none)
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .fire)
+        detector.allowsTap = true
+        #expect(detector.handleModifierState(fnDown: true, otherModifiers: [], at: 11, lastOtherInputAt: nil) == .none)
+        #expect(detector.handleModifierState(fnDown: false, otherModifiers: [], at: 11.1, lastOtherInputAt: nil) == .none)
+        #expect(detector.handleModifierState(fnDown: false, otherModifiers: [], at: 11.2, lastOtherInputAt: nil) == .none)
+    }
+
+    @Test mutating func sampledCombinationsStillDoNotStopTheRecording() {
+        detector.allowsTap = true
+        _ = detector.handleModifierState(fnDown: true, otherModifiers: [], at: 10, lastOtherInputAt: nil)
+        _ = detector.handleModifierState(fnDown: true, otherModifiers: [.option], at: 10.1, lastOtherInputAt: nil)
+        #expect(detector.handleModifierState(fnDown: false, otherModifiers: [], at: 10.2, lastOtherInputAt: nil) == .none)
+    }
+
+    @Test mutating func aDelayedFnEventCannotUndoANewerReleaseSample() {
+        detector.allowsTap = true
+        _ = detector.handleModifierState(fnDown: true, otherModifiers: [], at: 10, lastOtherInputAt: nil)
+        #expect(detector.handleModifierState(fnDown: false, otherModifiers: [], at: 10.2, lastOtherInputAt: nil) == .fire)
+        #expect(detector.handleModifierState(fnDown: true, otherModifiers: [], at: 10.1, lastOtherInputAt: nil) == .none)
+        #expect(!detector.isFnHeld)
+        #expect(detector.confirm(at: 11, lastOtherInputAt: nil) == .none)
+    }
+
     @Test mutating func aHoldFiresAtTheThresholdOnlyOnceUntilReleased() {
         #expect(detector.handle(.fnDown(otherModifiers: [], at: 10)) == .confirmAt(10.5))
         #expect(detector.confirm(at: 10.499, lastOtherInputAt: nil) == .none)

@@ -5,6 +5,40 @@ import Testing
 @MainActor
 @Suite("Dictation state machine")
 struct DictationControllerTests {
+    @Test func fnHoldStartsAndANewTapStopsRecording() async {
+        let transcriber = GatedTranscriber()
+        let harness = Harness(transcriber: transcriber)
+        var detector = FnHoldDetector()
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        if detector.confirm(at: 10.5, lastOtherInputAt: nil) == .fire {
+            await harness.controller.toggle()
+        }
+        #expect(harness.controller.phase == .recording)
+        #expect(detector.confirm(at: 12, lastOtherInputAt: nil) == .none)
+        detector.allowsTap = true
+        #expect(detector.handle(.fnUp(at: 12.1, lastOtherInputAt: nil)) == .none)
+        #expect(harness.controller.phase == .recording)
+        #expect(harness.recorder.stopCount == 0)
+
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 15))
+        if detector.handle(.fnUp(at: 15.1, lastOtherInputAt: nil)) == .fire {
+            await harness.controller.toggle()
+        }
+        #expect(harness.controller.phase.isProcessing)
+        #expect(harness.recorder.startCount == 1)
+        #expect(harness.recorder.stopCount == 1)
+        detector.allowsTap = false
+        _ = detector.handle(.fnUp(at: 16, lastOtherInputAt: nil))
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 20))
+        if detector.confirm(at: 20.5, lastOtherInputAt: nil) == .fire {
+            await harness.controller.toggle()
+        }
+        #expect(harness.controller.phase.isProcessing)
+        #expect(harness.recorder.startCount == 1)
+        harness.controller.cancel()
+        await transcriber.gate.open(with: .success("test"))
+    }
+
     // MARK: Preconditions
 
     @Test func missingKeyStopsBeforeTheMicrophoneIsTouched() async {

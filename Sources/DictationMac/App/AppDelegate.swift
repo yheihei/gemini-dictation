@@ -175,7 +175,7 @@ final class AppComposition {
         Log.app.info("phase \(phase.logName, privacy: .public)")
         hud?.phaseDidChange(phase)
         statusItem?.update(for: phase)
-        shortcuts.busyStateChanged(isBusy: phase.isBusy)
+        shortcuts.busyStateChanged(isBusy: phase.isBusy, isRecording: phase == .recording)
         dock?.busyStateChanged(isBusy: phase.isBusy)
         // esc cancels only while recording or waiting for Gemini; otherwise it stays with other apps.
         if phase.isBusy {

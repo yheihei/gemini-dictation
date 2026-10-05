@@ -21,7 +21,7 @@ struct ShortcutControllerTests {
         #expect(harness.controller.status == .active)
         #expect(harness.fnMonitor.isRunning)
         #expect(!harness.hotKeys.isRegistered(id: id))
-        harness.fnMonitor.tap()
+        harness.fnMonitor.hold()
         #expect(harness.toggles.count == 1)
     }
 
@@ -65,7 +65,7 @@ struct ShortcutControllerTests {
         #expect(harness.systemShortcuts.readCount == 1)
 
         harness.hotKeys.press(id: id)
-        harness.fnMonitor.tap()
+        harness.fnMonitor.hold()
         #expect(harness.toggles.count == 0)
     }
 
@@ -166,6 +166,20 @@ struct ShortcutControllerTests {
 
         harness.controller.busyStateChanged(isBusy: false)
         #expect(!harness.controller.changesBlocked)
+    }
+
+    @Test func fnTapsAreEnabledOnlyWhileRecordingWithoutRestartingTheMonitor() {
+        let harness = ShortcutHarness()
+        harness.controller.activate()
+        let starts = harness.fnMonitor.startCount
+        #expect(!harness.fnMonitor.allowsTap)
+        harness.controller.busyStateChanged(isBusy: true, isRecording: true)
+        #expect(harness.fnMonitor.allowsTap)
+        #expect(harness.fnMonitor.startCount == starts)
+        harness.controller.busyStateChanged(isBusy: true, isRecording: false)
+        #expect(!harness.fnMonitor.allowsTap)
+        harness.controller.busyStateChanged(isBusy: false)
+        #expect(!harness.fnMonitor.allowsTap)
     }
 
     @Test func aDictationStartingDuringRecordingCancelsTheRecorder() {

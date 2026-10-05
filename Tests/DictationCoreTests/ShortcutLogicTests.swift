@@ -2,110 +2,119 @@ import Foundation
 import Testing
 @testable import DictationCore
 
-@Suite("fn tap detection")
-struct FnTapDetectorTests {
-    var detector = FnTapDetector()
-    let window = FnTapDetector.Configuration().doubleTapWindow
+@Suite("fn hold detection")
+struct FnHoldDetectorTests {
+    var detector = FnHoldDetector()
 
-    /// Press at `down`, release at `up`; returns the actions of both events.
-    mutating func tap(down: Double, up: Double, others: ShortcutModifiers = [], lastOtherInputAt: Double? = nil) -> [FnTapDetector.Action] {
-        [
-            detector.handle(.fnDown(otherModifiers: others, at: down)),
-            detector.handle(.fnUp(otherModifiers: [], at: up, lastOtherInputAt: lastOtherInputAt)),
-        ]
+    @Test mutating func aHoldFiresAtTheThresholdOnlyOnceUntilReleased() {
+        #expect(detector.handle(.fnDown(otherModifiers: [], at: 10)) == .confirmAt(10.5))
+        #expect(detector.confirm(at: 10.499, lastOtherInputAt: nil) == .none)
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .fire)
+        #expect(detector.confirm(at: 15, lastOtherInputAt: nil) == .none)
+        #expect(detector.handle(.fnDown(otherModifiers: [], at: 15)) == .none)
+        #expect(detector.handle(.fnUp(at: 15.1, lastOtherInputAt: nil)) == .none)
+        #expect(detector.confirm(at: 20, lastOtherInputAt: nil) == .none)
+        #expect(detector.handle(.fnDown(otherModifiers: [], at: 21)) == .confirmAt(21.5))
+        #expect(detector.confirm(at: 21.5, lastOtherInputAt: nil) == .fire)
     }
 
-    @Test mutating func aCleanTapFiresAfterTheDoubleTapWindow() {
-        #expect(tap(down: 10, up: 10.1) == [.none, .confirmAt(10.1 + window)])
-        #expect(detector.confirm(at: 10.2) == .none)
-        #expect(detector.confirm(at: 10.1 + window) == .fire)
-        // Only once.
-        #expect(detector.confirm(at: 11) == .none)
-    }
-
-    @Test mutating func aKeyPressedWhileFnIsHeldIsACombination() {
-        // e.g. fn + Delete (forward delete) or fn + arrow (Home/End).
-        #expect(tap(down: 10, up: 10.2, lastOtherInputAt: 10.1) == [.none, .none])
-        #expect(detector.confirm(at: 11) == .none)
-    }
-
-    @Test mutating func aKeyPressedAtTheSameMomentCountsAsDuringThePress() {
-        #expect(tap(down: 10, up: 10.2, lastOtherInputAt: 9.99) == [.none, .none])
-    }
-
-    @Test mutating func typingRightAfterTheReleaseDoesNotBlockTheTap() {
-        // The key came after fn was released but before the release was handled.
-        #expect(tap(down: 10, up: 10.1, lastOtherInputAt: 10.3) == [.none, .confirmAt(10.1 + window)])
-    }
-
-    @Test mutating func typingShortlyBeforeFnDoesNotBlockTheTap() {
-        #expect(tap(down: 10, up: 10.1, lastOtherInputAt: 9.5) == [.none, .confirmAt(10.1 + window)])
-    }
-
-    @Test mutating func aModifierPressedDuringTheHoldIsACombination() {
+    @Test mutating func shortAndDoublePressesNeverFire() {
         _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
-        _ = detector.handle(.modifiersChanged(otherModifiers: [.command], at: 10.05))
-        _ = detector.handle(.modifiersChanged(otherModifiers: [], at: 10.1))
-        #expect(detector.handle(.fnUp(otherModifiers: [], at: 10.15, lastOtherInputAt: nil)) == .none)
+        _ = detector.handle(.fnUp(at: 10.1, lastOtherInputAt: nil))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .none)
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10.2))
+        _ = detector.handle(.fnUp(at: 10.3, lastOtherInputAt: nil))
+        #expect(detector.confirm(at: 10.7, lastOtherInputAt: nil) == .none)
     }
 
-    @Test mutating func aModifierHeldBeforeFnIsACombination() {
-        #expect(tap(down: 10, up: 10.1, others: [.shift]) == [.none, .none])
+    @Test(arguments: [ShortcutModifiers.command, .option, .control, .shift])
+    mutating func aModifierHeldBeforeFnBlocksTheHold(_ modifier: ShortcutModifiers) {
+        #expect(detector.handle(.fnDown(otherModifiers: modifier, at: 10)) == .none)
+        _ = detector.handle(.modifiersChanged(otherModifiers: []))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .none)
     }
 
-    @Test mutating func releasingFnBeforeTheOtherModifierIsACombination() {
+    @Test mutating func aModifierPressedAndReleasedDuringTheHoldBlocksIt() {
         _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
-        _ = detector.handle(.modifiersChanged(otherModifiers: [.option], at: 10.05))
-        #expect(detector.handle(.fnUp(otherModifiers: [.option], at: 10.1, lastOtherInputAt: nil)) == .none)
-        #expect(detector.handle(.modifiersChanged(otherModifiers: [], at: 10.2)) == .none)
-        #expect(detector.confirm(at: 11) == .none)
+        _ = detector.handle(.modifiersChanged(otherModifiers: [.option]))
+        _ = detector.handle(.modifiersChanged(otherModifiers: []))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .none)
+        _ = detector.handle(.fnUp(at: 10.6, lastOtherInputAt: nil))
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 12))
+        #expect(detector.confirm(at: 12.5, lastOtherInputAt: nil) == .fire)
     }
 
-    @Test mutating func aLongHoldIsNotATap() {
-        #expect(tap(down: 10, up: 11.5) == [.none, .none])
-    }
-
-    @Test mutating func aQuickDoublePressIsLeftToMacOS() {
-        #expect(tap(down: 10, up: 10.08) == [.none, .confirmAt(10.08 + window)])
-        #expect(tap(down: 10.2, up: 10.28) == [.none, .none])
-        #expect(detector.confirm(at: 10.08 + window) == .none)
-        #expect(detector.confirm(at: 12) == .none)
-    }
-
-    @Test mutating func aThirdPressAfterADoublePressCountsAgain() {
-        _ = tap(down: 10, up: 10.08)
-        _ = tap(down: 10.2, up: 10.28)
-        #expect(tap(down: 11, up: 11.1) == [.none, .confirmAt(11.1 + window)])
-        #expect(detector.confirm(at: 11.1 + window) == .fire)
-    }
-
-    @Test mutating func twoSeparateTapsBothFire() {
-        _ = tap(down: 10, up: 10.1)
-        #expect(detector.confirm(at: 10.1 + window) == .fire)
-        _ = tap(down: 12, up: 12.1)
-        #expect(detector.confirm(at: 12.1 + window) == .fire)
-    }
-
-    @Test mutating func aLateConfirmationStillFiresWhenTheNextPressBegins() {
-        _ = tap(down: 10, up: 10.1)
-        // The timer was delayed; the next press arrives after the window.
-        #expect(detector.handle(.fnDown(otherModifiers: [], at: 10.9)) == .fire)
-        #expect(detector.handle(.fnUp(otherModifiers: [], at: 11.0, lastOtherInputAt: nil)) == .confirmAt(11.0 + window))
-    }
-
-    @Test mutating func repeatedDownEventsAndStrayReleasesAreIgnored() {
-        #expect(detector.handle(.fnUp(otherModifiers: [], at: 9, lastOtherInputAt: nil)) == .none)
+    @Test(arguments: [9.99, 10.0, 10.2, 10.5])
+    mutating func otherInputBeforeConfirmationBlocksTheHold(_ time: Double) {
         _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
-        #expect(detector.handle(.fnDown(otherModifiers: [], at: 10.05)) == .none)
-        #expect(detector.isFnHeld)
-        #expect(detector.handle(.fnUp(otherModifiers: [], at: 10.1, lastOtherInputAt: nil)) == .confirmAt(10.1 + window))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: time) == .none)
+        #expect(detector.confirm(at: 11, lastOtherInputAt: nil) == .none)
     }
 
-    @Test mutating func resetDropsAPendingTap() {
-        _ = tap(down: 10, up: 10.1)
+    @Test mutating func olderTypingDoesNotBlockTheHold() {
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: 9.5) == .fire)
+    }
+
+    @Test mutating func aLateTimerStillFiresIfFnIsHeld() {
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        #expect(detector.confirm(at: 12, lastOtherInputAt: nil) == .fire)
+    }
+
+    @Test mutating func resetOrReleaseDropsAPendingHold() {
+        #expect(detector.handle(.fnUp(at: 10.1, lastOtherInputAt: nil)) == .none)
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
         detector.reset()
-        #expect(detector.confirm(at: 11) == .none)
         #expect(!detector.isFnHeld)
+        #expect(detector.confirm(at: 11, lastOtherInputAt: nil) == .none)
+    }
+
+    @Test mutating func aNewTapDuringRecordingFiresOnRelease() {
+        detector.allowsTap = true
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        #expect(detector.confirm(at: 10.1, lastOtherInputAt: nil) == .none)
+        #expect(detector.handle(.fnUp(at: 10.15, lastOtherInputAt: nil)) == .fire)
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .none)
+    }
+
+    @Test mutating func releasingTheStartingHoldDoesNotStopTheRecording() {
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .fire)
+        detector.allowsTap = true
+        #expect(detector.handle(.fnUp(at: 10.6, lastOtherInputAt: nil)) == .none)
+    }
+
+    @Test mutating func aStoppingHoldDoesNotFireAgainOnRelease() {
+        detector.allowsTap = true
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .fire)
+        detector.allowsTap = false
+        #expect(detector.confirm(at: 11, lastOtherInputAt: nil) == .none)
+        #expect(detector.handle(.fnUp(at: 11.1, lastOtherInputAt: nil)) == .none)
+    }
+
+    @Test mutating func aStoppingTapWithAnotherModifierIsIgnored() {
+        detector.allowsTap = true
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        _ = detector.handle(.modifiersChanged(otherModifiers: [.command]))
+        _ = detector.handle(.modifiersChanged(otherModifiers: []))
+        #expect(detector.handle(.fnUp(at: 10.2, lastOtherInputAt: nil)) == .none)
+    }
+
+    @Test(arguments: [9.99, 10.0, 10.1, 10.2])
+    mutating func aStoppingTapWithOtherInputIsIgnored(_ time: Double) {
+        detector.allowsTap = true
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        #expect(detector.handle(.fnUp(at: 10.2, lastOtherInputAt: time)) == .none)
+    }
+
+    @Test mutating func endingRecordingDuringAPressCannotStopANewRecording() {
+        detector.allowsTap = true
+        _ = detector.handle(.fnDown(otherModifiers: [], at: 10))
+        detector.allowsTap = false
+        detector.allowsTap = true
+        #expect(detector.confirm(at: 10.5, lastOtherInputAt: nil) == .none)
+        #expect(detector.handle(.fnUp(at: 10.6, lastOtherInputAt: nil)) == .none)
     }
 }
 
@@ -244,7 +253,7 @@ struct ShortcutRecordingTests {
 @Suite("Shortcut model")
 struct ShortcutModelTests {
     @Test func displayNames() {
-        #expect(Shortcut.fn.displayName == "fn")
+        #expect(Shortcut.fn.displayName == "fn 長押し")
         #expect(Shortcut.key(KeyCombo(keyCode: KeyCode.space, modifiers: [.command, .option, .control, .shift], keyLabel: "Space")).displayName == "⌃⌥⇧⌘ Space")
         #expect(Shortcut.key(KeyCombo(keyCode: 0x69, modifiers: [], keyLabel: "F13")).displayName == "F13")
         #expect(Shortcut.default == .fn)

@@ -85,7 +85,7 @@ public final class ShortcutController {
         status = .paused
         isRecording = true
         recording = ShortcutRecording(systemShortcuts: systemShortcuts.enabledShortcuts())
-        feedback = Feedback(text: "割り当てたいキーを押してください。fn だけを押して離すと fn になります。esc でキャンセルします。", isError: false)
+        feedback = Feedback(text: "割り当てたいキーを押してください。fn だけを押して離すと fn 長押しになります。esc でキャンセルします。", isError: false)
         keyEvents.start { [weak self] input in
             self?.handleRecorderInput(input)
         }
@@ -109,9 +109,10 @@ public final class ShortcutController {
     }
 
     /// Called on every dictation phase change.
-    public func busyStateChanged(isBusy: Bool) {
+    public func busyStateChanged(isBusy: Bool, isRecording: Bool = false) {
         changesBlocked = isBusy
-        if isBusy && isRecording {
+        fnMonitor.allowsTap = isRecording
+        if isBusy && self.isRecording {
             cancelRecording()
         }
     }
@@ -177,7 +178,7 @@ public final class ShortcutController {
                 startPermissionPolling()
                 return .needsAccessibility
             }
-            fnMonitor.start(onTap: onToggle)
+            fnMonitor.start(onHold: onToggle)
             return .active
         case .key(let combo):
             let registered = hotKeys.register(

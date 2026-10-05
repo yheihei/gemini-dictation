@@ -14,6 +14,36 @@ public struct HUDView: View {
     }
 
     public var body: some View {
+        if content.isCompact {
+            compactIndicator
+        } else {
+            detailedPanel
+        }
+    }
+
+    private var compactIndicator: some View {
+        HStack(spacing: 7) {
+            if content.tone == .recording {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 7, height: 7)
+            } else {
+                ProgressView()
+                    .controlSize(.mini)
+            }
+            Text(content.title)
+                .font(.system(size: 12, weight: .medium))
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 32)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.1)))
+        .accessibilityElement(children: .combine)
+        .allowsHitTesting(false)
+    }
+
+    private var detailedPanel: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
                 icon

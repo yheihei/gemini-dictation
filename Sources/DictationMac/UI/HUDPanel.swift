@@ -38,8 +38,8 @@ struct HUDRootView: View {
     var shortcut: () -> String
     var perform: (HUDAction) -> Void
 
-    var body: some View {
-        if let content = HUDContent.make(
+    var content: HUDContent? {
+        HUDContent.make(
             phase: controller.phase,
             elapsed: controller.elapsed,
             limit: controller.configuration.maxRecordingDuration,
@@ -49,7 +49,11 @@ struct HUDRootView: View {
             targetAppName: controller.targetAppName,
             canRetry: controller.canRetry,
             shortcut: shortcut()
-        ) {
+        )
+    }
+
+    var body: some View {
+        if let content {
             HUDView(content: content, perform: perform)
         }
     }
@@ -70,7 +74,7 @@ final class HUDController {
     }
 
     func phaseDidChange(_ phase: DictationPhase) {
-        if phase == .idle {
+        if hostingView.rootView.content == nil {
             panel.orderOut(nil)
             return
         }
@@ -81,12 +85,19 @@ final class HUDController {
     }
 
     private func layoutAndShow() {
+        // 待機中のレイアウト処理が、完了後にパネルを再表示しないようにする。
+        guard let content = hostingView.rootView.content else {
+            panel.orderOut(nil)
+            return
+        }
+        panel.ignoresMouseEvents = content.isCompact
         hostingView.layoutSubtreeIfNeeded()
         let size = hostingView.fittingSize
         guard size.width > 1, size.height > 1 else { return }
         let screen = NSScreen.main ?? NSScreen.screens.first
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let origin = NSPoint(x: (visible.midX - size.width / 2).rounded(), y: visible.minY + 64)
+        let bottomInset: CGFloat = content.isCompact ? 24 : 64
+        let origin = NSPoint(x: (visible.midX - size.width / 2).rounded(), y: visible.minY + bottomInset)
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         panel.orderFrontRegardless()
     }

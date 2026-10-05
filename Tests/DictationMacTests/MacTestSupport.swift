@@ -42,27 +42,28 @@ final class FakeHotKeys: HotKeyRegistering {
 
 @MainActor
 final class FakeFnMonitor: FnKeyMonitoring {
+    var allowsTap = false
     private(set) var startCount = 0
     private(set) var stopCount = 0
-    private var onTap: (@MainActor () -> Void)?
+    private var onHold: (@MainActor () -> Void)?
 
     var isRunning: Bool {
-        onTap != nil
+        onHold != nil
     }
 
-    func start(onTap: @escaping @MainActor () -> Void) {
+    func start(onHold: @escaping @MainActor () -> Void) {
         startCount += 1
-        self.onTap = onTap
+        self.onHold = onHold
     }
 
     func stop() {
         stopCount += 1
-        onTap = nil
+        onHold = nil
     }
 
-    /// Simulates a confirmed fn tap.
-    func tap() {
-        onTap?()
+    /// 長押しの確定を再現する。
+    func hold() {
+        onHold?()
     }
 }
 

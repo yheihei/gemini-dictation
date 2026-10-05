@@ -66,16 +66,17 @@ enum KeyEventTranslation {
     }
 }
 
-// MARK: - fn / Globe tap monitor
+// MARK: - fn / Globe hold monitor
 
 @MainActor
 public protocol FnKeyMonitoring: AnyObject {
     var isRunning: Bool { get }
-    func start(onTap: @escaping @MainActor () -> Void)
+    var allowsTap: Bool { get set }
+    func start(onHold: @escaping @MainActor () -> Void)
     func stop()
 }
 
-/// Watches fn / Globe by observing modifier-change events only (no typed characters).
+/// 修飾キーの変化だけで fn の長押しを監視する。入力した文字は読まない。
 ///
 /// - A global monitor sees events sent to other apps. Per Apple's documentation,
 ///   key-related events reach it only while this app is trusted for Accessibility.
@@ -86,19 +87,24 @@ public protocol FnKeyMonitoring: AnyObject {
 @MainActor
 public final class FnKeyMonitor: FnKeyMonitoring {
     private var monitors: [Any] = []
-    private var detector = FnTapDetector()
-    private var onTap: (@MainActor () -> Void)?
+    private var detector = FnHoldDetector()
+    private var onHold: (@MainActor () -> Void)?
     private var confirmTask: Task<Void, Never>?
 
     public init() {}
+
+    public var allowsTap: Bool {
+        get { detector.allowsTap }
+        set { detector.allowsTap = newValue }
+    }
 
     public var isRunning: Bool {
         !monitors.isEmpty
     }
 
-    public func start(onTap: @escaping @MainActor () -> Void) {
+    public func start(onHold: @escaping @MainActor () -> Void) {
         stop()
-        self.onTap = onTap
+        self.onHold = onHold
         let global = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             let change = FlagsChange(event)
             Self.onMain { self?.handle(change) }
@@ -119,7 +125,7 @@ public final class FnKeyMonitor: FnKeyMonitoring {
         confirmTask?.cancel()
         confirmTask = nil
         detector.reset()
-        onTap = nil
+        onHold = nil
     }
 
     /// The parts of a modifier-change event the detector needs.
@@ -148,30 +154,41 @@ public final class FnKeyMonitor: FnKeyMonitoring {
     }
 
     private func handle(_ change: FlagsChange) {
-        let input: FnTapDetector.Input
+        let input: FnHoldDetector.Input
         if change.keyCode == KeyCode.function {
+            Log.app.debug("fn modifier changed; held: \(change.fnDown, privacy: .public)")
             input = change.fnDown
                 ? .fnDown(otherModifiers: change.otherModifiers, at: change.timestamp)
-                : .fnUp(otherModifiers: change.otherModifiers, at: change.timestamp, lastOtherInputAt: Self.lastOtherInputTime())
+                : .fnUp(at: change.timestamp, lastOtherInputAt: Self.lastOtherInputTime())
         } else {
-            input = .modifiersChanged(otherModifiers: change.otherModifiers, at: change.timestamp)
+            input = .modifiersChanged(otherModifiers: change.otherModifiers)
+        }
+        if case .fnUp = input {
+            confirmTask?.cancel()
+            confirmTask = nil
         }
         perform(detector.handle(input))
     }
 
-    private func perform(_ action: FnTapDetector.Action) {
+    private func perform(_ action: FnHoldDetector.Action) {
         switch action {
         case .none:
             break
         case .fire:
-            onTap?()
+            Log.app.info("fn shortcut recognized")
+            onHold?()
         case .confirmAt(let time):
             confirmTask?.cancel()
             let delay = max(0, time - ProcessInfo.processInfo.systemUptime)
             confirmTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64((delay * 1_000_000_000).rounded(.up)))
                 guard let self, !Task.isCancelled else { return }
-                self.perform(self.detector.confirm(at: ProcessInfo.processInfo.systemUptime))
+                let now = ProcessInfo.processInfo.systemUptime
+                if now < time {
+                    self.perform(.confirmAt(time))
+                } else {
+                    self.perform(self.detector.confirm(at: now, lastOtherInputAt: Self.lastOtherInputTime()))
+                }
             }
         }
     }

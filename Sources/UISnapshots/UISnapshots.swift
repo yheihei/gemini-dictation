@@ -72,8 +72,9 @@ final class InertHotKeys: HotKeyRegistering {
 
 @MainActor
 final class InertFnMonitor: FnKeyMonitoring {
+    var allowsTap = false
     var isRunning: Bool { false }
-    func start(onTap: @escaping @MainActor () -> Void) {}
+    func start(onHold: @escaping @MainActor () -> Void) {}
     func stop() {}
 }
 
@@ -125,13 +126,12 @@ enum Samples {
             ("recording", content(.recording)),
             ("processing", content(.processing(attempt: 1))),
             ("retrying", content(.processing(attempt: 2))),
-            ("inserted", content(.inserted)),
             ("result-focus-changed", content(.resultReady(.focusChanged), transcript: "来週の打ち合わせは水曜日の14時からに変更します。資料は前日までに共有してください。")),
             ("result-no-accessibility", content(.resultReady(.accessibilityNotGranted), transcript: "テストの文字起こし結果です。")),
             ("failed-missing-key", content(.failed(.missingAPIKey))),
             ("failed-auth-retry", content(.failed(.transcription(.authentication("API key expired."))), canRetry: true)),
             ("failed-microphone", content(.failed(.microphoneDenied))),
-            ("notice-discarded", content(.notice(.recordingDiscarded))),
+            ("notice-too-short", content(.notice(.tooShort))),
         ]
     }
 }

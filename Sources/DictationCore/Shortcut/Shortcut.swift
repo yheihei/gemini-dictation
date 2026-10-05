@@ -72,7 +72,7 @@ public struct KeyCombo: Hashable, Sendable, Codable {
 
 /// What starts and stops a recording.
 public enum Shortcut: Hashable, Sendable {
-    /// Pressing and releasing fn / Globe on its own.
+    /// fn / Globe を0.5秒長押しして開始する。録音中は短押しでも停止する。
     case fn
     case key(KeyCombo)
 
@@ -80,7 +80,7 @@ public enum Shortcut: Hashable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .fn: return "fn"
+        case .fn: return "fn 長押し"
         case .key(let combo): return combo.displayName
         }
     }

@@ -53,6 +53,10 @@ public struct HUDContent: Equatable {
     public var hint: String?
     public var actions: [HUDAction]
 
+    public var isCompact: Bool {
+        tone == .recording || tone == .working
+    }
+
     public init(
         tone: Tone,
         title: String,
@@ -93,26 +97,14 @@ public struct HUDContent: Equatable {
         case .idle:
             return nil
         case .recording:
-            return HUDContent(
-                tone: .recording,
-                title: "録音中",
-                message: targetAppName.map { "入力先: \($0)" } ?? "入力先なし（終了後にコピーできます）",
-                elapsed: elapsed,
-                limit: limit,
-                level: level,
-                hint: "\(shortcut) で停止・esc でキャンセル",
-                actions: [.cancel, .stop]
-            )
+            return HUDContent(tone: .recording, title: "録音中")
         case .processing(let attempt):
             return HUDContent(
                 tone: .working,
-                title: attempt > 1 ? "再試行中（\(attempt)回目）…" : "文字起こし中…",
-                message: modelName,
-                hint: "esc でキャンセル",
-                actions: [.cancel]
+                title: attempt > 1 ? "再試行中" : "文字起こし中"
             )
         case .inserted:
-            return HUDContent(tone: .success, title: "入力しました")
+            return nil
         case .resultReady(let reason):
             var actions: [HUDAction] = [.dismiss]
             if reason == .accessibilityNotGranted {
@@ -145,7 +137,12 @@ public struct HUDContent: Equatable {
                 actions: actions
             )
         case .notice(let notice):
-            return HUDContent(tone: notice == .copied ? .success : .info, title: notice.message)
+            switch notice {
+            case .copied, .recordingDiscarded, .processingCancelled:
+                return nil
+            default:
+                return HUDContent(tone: .info, title: notice.message)
+            }
         }
     }
 }

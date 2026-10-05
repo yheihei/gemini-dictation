@@ -58,7 +58,7 @@ public final class SettingsModel {
         if shortcuts.isRecording { return nil }
         switch shortcuts.status {
         case .active:
-            return shortcuts.shortcut == .fn ? "fn キーで操作できます。" : nil
+            return shortcuts.shortcut == .fn ? "fn 長押しで開始、録音中は1回押すだけで停止できます。" : nil
         case .needsAccessibility:
             return "fn キーを使うにはアクセシビリティの許可が必要です（下の「macOSの権限」）。許可すると数秒で使えるようになります。"
         case .registrationFailed:

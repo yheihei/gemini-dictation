@@ -69,20 +69,28 @@ struct HUDContentTests {
 
     @Test func idleHidesThePanel() {
         #expect(make(.idle) == nil)
+        #expect(make(.inserted) == nil)
+        #expect(make(.notice(.copied)) == nil)
+        #expect(make(.notice(.recordingDiscarded)) == nil)
+        #expect(make(.notice(.processingCancelled)) == nil)
     }
 
-    @Test func recordingShowsTargetTimeAndControls() throws {
+    @Test func recordingShowsOnlyASmallIndicator() throws {
         let content = try #require(make(.recording))
         #expect(content.tone == .recording)
-        #expect(content.message == "入力先: Editor")
-        #expect(content.elapsed == 65)
-        #expect(content.hint?.contains("⌥ Space") == true)
-        #expect(content.actions == [.cancel, .stop])
-        #expect(make(.recording, target: nil)?.message?.contains("入力先なし") == true)
+        #expect(content.isCompact)
+        #expect(content.title == "録音中")
+        #expect(content.message == nil)
+        #expect(content.elapsed == nil)
+        #expect(content.level == nil)
+        #expect(content.hint == nil)
+        #expect(content.actions.isEmpty)
+        #expect(make(.recording, target: nil) == content)
     }
 
-    @Test func processingCanBeCancelled() {
-        #expect(make(.processing(attempt: 1))?.actions == [.cancel])
+    @Test func processingUsesASmallIndicator() {
+        #expect(make(.processing(attempt: 1))?.isCompact == true)
+        #expect(make(.processing(attempt: 1))?.actions.isEmpty == true)
         #expect(make(.processing(attempt: 2))?.title.contains("再試行") == true)
     }
 

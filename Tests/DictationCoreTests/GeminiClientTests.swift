@@ -114,6 +114,42 @@ struct GeminiClientTests {
         }
     }
 
+    /// The real URLSession transport, wired to a server stub that never answers.
+    func stalledClient(timeout: TimeInterval) -> GeminiClient {
+        let configuration = URLSessionTransport.defaultConfiguration()
+        configuration.protocolClasses = [StalledURLProtocol.self]
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = timeout
+        return GeminiClient(transport: URLSessionTransport(configuration: configuration))
+    }
+
+    @Test func aServerThatNeverAnswersEndsInATimeout() async {
+        let client = stalledClient(timeout: 0.5)
+        let (model, clip) = (self.model, self.clip)
+        // `timedOut` is left to the user's explicit retry (see RetryPolicyTests).
+        await #expect(throws: GeminiError.timedOut) {
+            try await client.transcribe(clip, model: model, apiKey: "TEST-KEY-stalled-timeout-0001")
+        }
+    }
+
+    @Test func cancellingAStalledRequestEndsItWithoutWaitingForTheTimeout() async throws {
+        let client = stalledClient(timeout: 60)
+        let (model, clip) = (self.model, self.clip)
+        let key = "TEST-KEY-stalled-cancel-0002"
+        let task = Task { try await client.transcribe(clip, model: model, apiKey: key) }
+        for _ in 0..<500 where !StalledURLProtocol.hasStarted(key: key) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(StalledURLProtocol.hasStarted(key: key))
+
+        let cancelledAt = Date()
+        task.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(Date().timeIntervalSince(cancelledAt) < 5)
+    }
+
     @Test func malformedKeyFailsBeforeAnyNetworkCall() async {
         let transport = MockTransport([])
         await #expect(throws: GeminiError.invalidAPIKeyFormat) {

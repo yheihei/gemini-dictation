@@ -184,6 +184,7 @@ extension DictationFailure {
         case .apiKeyUnavailable: return "apiKeyUnavailable"
         case .microphoneDenied: return "microphoneDenied"
         case .recordingFailed: return "recordingFailed"
+        case .audioConversionFailed: return "audioConversionFailed"
         case .unexpected: return "unexpected"
         case .transcription(let error):
             switch error {

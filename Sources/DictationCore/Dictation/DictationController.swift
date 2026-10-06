@@ -10,8 +10,8 @@ import Observation
 @Observable
 public final class DictationController {
     public struct Configuration: Sendable {
-        /// Recording stops automatically at this length. 5 minutes of 16 kHz mono
-        /// WAV stays well under the 20 MB inline request limit.
+        /// Recording stops automatically at this length and is sent. 20 minutes of
+        /// 16 kHz mono WAV is 38.4 MB, so long recordings are compressed before sending.
         public var maxRecordingDuration: TimeInterval
         /// Shorter recordings are discarded without contacting the API.
         public var minimumDuration: TimeInterval
@@ -24,7 +24,7 @@ public final class DictationController {
         public var retryPolicy: RetryPolicy
 
         public init(
-            maxRecordingDuration: TimeInterval = 300,
+            maxRecordingDuration: TimeInterval = 1200,
             minimumDuration: TimeInterval = 0.5,
             silenceThresholdDecibels: Double = -50,
             meterInterval: Double? = 0.1,
@@ -57,6 +57,7 @@ public final class DictationController {
     @ObservationIgnored private let apiKeys: APIKeyProviding
     @ObservationIgnored private let models: ModelProviding
     @ObservationIgnored private let transcriber: Transcribing
+    @ObservationIgnored private let compressor: AudioCompressing
     @ObservationIgnored private let focus: FocusTracking
     @ObservationIgnored private let inserter: TextInserting
     @ObservationIgnored private let clipboard: ClipboardWriting
@@ -80,6 +81,7 @@ public final class DictationController {
         apiKeys: APIKeyProviding,
         models: ModelProviding,
         transcriber: Transcribing,
+        compressor: AudioCompressing,
         focus: FocusTracking,
         inserter: TextInserting,
         clipboard: ClipboardWriting,
@@ -91,6 +93,7 @@ public final class DictationController {
         self.apiKeys = apiKeys
         self.models = models
         self.transcriber = transcriber
+        self.compressor = compressor
         self.focus = focus
         self.inserter = inserter
         self.clipboard = clipboard
@@ -270,17 +273,35 @@ public final class DictationController {
     // MARK: - Processing
 
     private func beginProcessing() {
-        guard let clip = pendingClip else { return }
+        guard pendingClip != nil else { return }
         let current = session
         let model = models.selectedModel
         activeModel = model
         setPhase(.processing(attempt: 1))
+        // The task reads the kept audio itself, so a replaced long WAV is not held until it ends.
         processingTask = Task { [weak self] in
-            await self?.runTranscription(clip: clip, model: model, session: current)
+            await self?.runTranscription(model: model, session: current)
         }
     }
 
-    private func runTranscription(clip: AudioClip, model: GeminiModel, session current: Int) async {
+    private func runTranscription(model: GeminiModel, session current: Int) async {
+        guard isProcessing(current), var clip = pendingClip else { return }
+        if !InteractionRequestFactory.fitsInline(audioByteCount: clip.data.count) {
+            // Too large to send as WAV. Compress once and keep the result, so retries
+            // resend it without converting again and the WAV can be released.
+            do {
+                clip = try await compressor.compress(clip)
+            } catch {
+                // Includes a cancellation this task did not ask for, so the panel never keeps spinning.
+                if isProcessing(current), !Task.isCancelled {
+                    setPhase(.failed(.audioConversionFailed))
+                }
+                return
+            }
+            guard isProcessing(current), !Task.isCancelled else { return }
+            pendingClip = clip
+        }
+
         var attempt = 1
         while true {
             let key: String

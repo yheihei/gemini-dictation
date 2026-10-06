@@ -28,8 +28,18 @@ struct WAVFileTests {
         data.append(contentsOf: [3, 0, 0, 0, 0xAA, 0xBB, 0xCC, 0x00])
         data.append(plain[36...])
         let info = try WAVFile.analyze(data)
+        #expect(info.dataOffset == 56)
         #expect(info.dataByteCount == 8)
         #expect(abs((info.peak ?? 0) - 0.5) < 0.001)
+    }
+
+    @Test func measuresATwentyMinuteRecording() throws {
+        let data = Fixtures.longToneWAV(seconds: 1200)
+        #expect(data.count == 38_400_044)
+        let info = try WAVFile.analyze(data)
+        #expect(info.duration == 1200)
+        #expect(info.dataOffset == 44)
+        #expect(abs((info.peak ?? 0) - 0.3) < 0.01)
     }
 
     @Test func acceptsUnfinalizedDataLength() throws {

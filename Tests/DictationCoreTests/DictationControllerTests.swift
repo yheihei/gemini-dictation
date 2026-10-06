@@ -417,20 +417,124 @@ struct DictationControllerTests {
 
     // MARK: Recording lifecycle
 
-    @Test func recordingStopsAutomaticallyAtTheLengthLimit() async {
+    @Test func recordingContinuesPastFiveMinutesAndStopsAtTwentyMinutes() async {
         let transcriber = ScriptedTranscriber([.success("長い口述")])
         let harness = Harness(transcriber: transcriber)
         await harness.controller.toggle()
-        harness.recorder.elapsedTime = 120
-        harness.controller.updateMeter()
-        #expect(harness.controller.phase == .recording)
-        #expect(harness.controller.elapsed == 120)
+        for elapsed in [120.0, 300, 1199.9] {
+            harness.recorder.elapsedTime = elapsed
+            harness.controller.updateMeter()
+            #expect(harness.controller.phase == .recording)
+            #expect(harness.controller.elapsed == elapsed)
+        }
 
-        harness.recorder.elapsedTime = 300
+        harness.recorder.elapsedTime = 1200
         harness.controller.updateMeter()
         #expect(harness.controller.phase == .processing(attempt: 1))
+        #expect(harness.recorder.stopCount == 1)
         await harness.controller.processingTask?.value
         #expect(harness.controller.phase == .inserted)
+    }
+
+    // MARK: Long recordings (450 s is enough to need compression in the tests below)
+
+    @Test func twentyMinuteRecordingIsCompressedOnceAndOnlyTheCompressedAudioIsSent() async {
+        let transcriber = ScriptedTranscriber([.success("二十分の口述")])
+        let compressor = ScriptedCompressor([.success(Fixtures.compressedClip)])
+        let harness = Harness(transcriber: transcriber, compressor: compressor)
+        harness.recorder.clip = Fixtures.longClip(seconds: 1200)
+        await harness.dictate()
+
+        #expect(harness.controller.phase == .inserted)
+        #expect(harness.inserter.inserted.map(\.text) == ["二十分の口述"])
+        #expect(await compressor.inputSizes == [harness.recorder.clip.data.count])
+        let calls = await transcriber.calls
+        #expect(calls.map(\.audio) == [Fixtures.compressedClip.data])
+        #expect(calls.map(\.mimeType) == ["audio/m4a"])
+        #expect(harness.controller.hasPendingAudio == false)
+    }
+
+    /// About 7 minutes 20 seconds of WAV fit the inline limit; only longer recordings are converted.
+    @Test(arguments: [(seconds: 420, compressed: false), (seconds: 450, compressed: true)])
+    func onlyRecordingsOverTheInlineLimitAreCompressed(seconds: Int, compressed: Bool) async {
+        let transcriber = ScriptedTranscriber([.success("結果")])
+        let compressor = ScriptedCompressor([.success(Fixtures.compressedClip)])
+        let harness = Harness(transcriber: transcriber, compressor: compressor)
+        harness.recorder.clip = Fixtures.longClip(seconds: seconds)
+        await harness.dictate()
+
+        #expect(harness.controller.phase == .inserted)
+        #expect(await compressor.inputSizes.count == (compressed ? 1 : 0))
+        let sent = await transcriber.calls.first
+        #expect(sent?.audio == (compressed ? Fixtures.compressedClip.data : harness.recorder.clip.data))
+        #expect(sent?.mimeType == (compressed ? "audio/m4a" : "audio/wav"))
+    }
+
+    @Test func cancellingDuringCompressionStopsItAndSendsNothing() async {
+        let transcriber = ScriptedTranscriber([.success("送られてはいけない")])
+        let compressor = GatedCompressor()
+        let harness = Harness(transcriber: transcriber, compressor: compressor)
+        harness.recorder.clip = Fixtures.longClip(seconds: 450)
+        await harness.controller.toggle()
+        await harness.controller.toggle()
+        await compressor.gate.waitForArrivals(1)
+        let task = harness.controller.processingTask
+
+        harness.controller.cancel()
+        #expect(harness.controller.phase == .notice(.processingCancelled))
+        #expect(harness.controller.hasPendingAudio == false)
+
+        // The compressed audio still comes back (the mock ignores cancellation).
+        await compressor.gate.open(with: Fixtures.compressedClip)
+        await task?.value
+        #expect(compressor.sawCancellation)
+        #expect(await transcriber.calls.isEmpty)
+        #expect(harness.controller.phase == .notice(.processingCancelled))
+        #expect(harness.controller.hasPendingAudio == false)
+    }
+
+    @Test(arguments: [CompressionFailure() as any Error, CancellationError()])
+    func failedCompressionKeepsTheRecordingForARetry(error: any Error) async {
+        let transcriber = ScriptedTranscriber([.success("再試行で成功")])
+        let compressor = ScriptedCompressor([.failure(error), .success(Fixtures.compressedClip)])
+        let harness = Harness(transcriber: transcriber, compressor: compressor)
+        harness.recorder.clip = Fixtures.longClip(seconds: 450)
+        await harness.dictate()
+
+        #expect(harness.controller.phase == .failed(.audioConversionFailed))
+        #expect(harness.controller.canRetry)
+        #expect(await transcriber.calls.isEmpty)
+
+        harness.controller.retry()
+        await harness.controller.processingTask?.value
+        #expect(harness.controller.phase == .inserted)
+        let original = harness.recorder.clip.data.count
+        #expect(await compressor.inputSizes == [original, original])
+        #expect(await transcriber.calls.map(\.audio) == [Fixtures.compressedClip.data])
+    }
+
+    @Test func retriesResendTheCompressedAudioWithoutConvertingAgain() async {
+        let transcriber = ScriptedTranscriber([
+            .failure(.server(status: 503, message: nil)),
+            .failure(.incomplete),
+            .success("三回目で成功"),
+        ])
+        let compressor = ScriptedCompressor([.success(Fixtures.compressedClip)])
+        let harness = Harness(transcriber: transcriber, compressor: compressor)
+        harness.recorder.clip = Fixtures.longClip(seconds: 450)
+        await harness.dictate()
+
+        // The 503 is retried automatically; the truncated output is reported, never inserted.
+        #expect(harness.controller.phase == .failed(.transcription(.incomplete)))
+        #expect(harness.inserter.inserted.isEmpty)
+        #expect(harness.controller.lastTranscript == nil)
+        #expect(harness.controller.canRetry)
+
+        harness.controller.retry()
+        await harness.controller.processingTask?.value
+        #expect(harness.controller.phase == .inserted)
+        #expect(await compressor.inputSizes.count == 1)
+        #expect(await transcriber.calls.map(\.audio) == Array(repeating: Fixtures.compressedClip.data, count: 3))
     }
 
     @Test func deviceInterruptionEndsTheRecording() async {

@@ -20,9 +20,30 @@ enum Fixtures {
         WAVFile.encodePCM16(samples: Array(repeating: 0, count: Int(seconds * Double(sampleRate))), sampleRate: sampleRate)
     }
 
+    /// The same 440 Hz tone, built by repeating one second so that 20 minutes take milliseconds.
+    static func longToneWAV(seconds: Int, sampleRate: Int = 16_000) -> Data {
+        let oneSecond = toneWAV(seconds: 1, sampleRate: sampleRate).dropFirst(44)
+        let dataSize = oneSecond.count * seconds
+        var data = WAVFile.encodePCM16(samples: [], sampleRate: sampleRate)
+        data.replaceSubrange(4..<8, with: withUnsafeBytes(of: UInt32(36 + dataSize).littleEndian, Array.init))
+        data.replaceSubrange(40..<44, with: withUnsafeBytes(of: UInt32(dataSize).littleEndian, Array.init))
+        data.reserveCapacity(44 + dataSize)
+        for _ in 0..<seconds {
+            data.append(oneSecond)
+        }
+        return data
+    }
+
     static func clip(seconds: Double = 1.0, amplitude: Double = 0.3) -> AudioClip {
         AudioClip(data: toneWAV(seconds: seconds, amplitude: amplitude), mimeType: "audio/wav")
     }
+
+    static func longClip(seconds: Int) -> AudioClip {
+        AudioClip(data: longToneWAV(seconds: seconds), mimeType: "audio/wav")
+    }
+
+    /// Stands in for the compressor's output; only its identity matters to the controller.
+    static let compressedClip = AudioClip(data: Data("synthetic m4a".utf8), mimeType: "audio/m4a")
 
     static func json(_ object: Any) -> Data {
         try! JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -139,6 +160,27 @@ final class CancellingTransport: HTTPTransport, @unchecked Sendable {
     }
 }
 
+/// A server that accepts the request and never answers. Only installed on test
+/// sessions, so requests stay in the process. Remembers which keys reached it.
+final class StalledURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var keys: Set<String> = []
+
+    static func hasStarted(key: String) -> Bool {
+        lock.withLock { keys.contains(key) }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let key = request.value(forHTTPHeaderField: "x-goog-api-key") ?? ""
+        Self.lock.withLock { _ = Self.keys.insert(key) }
+    }
+
+    override func stopLoading() {}
+}
+
 /// Throws CancellationError without the calling task having been cancelled.
 struct SpuriouslyCancellingTranscriber: Transcribing {
     func transcribe(_ clip: AudioClip, model: GeminiModel, apiKey: String) async throws -> String {
@@ -152,6 +194,7 @@ struct TranscribeCall: Sendable, Equatable {
     var modelID: String
     var apiKey: String
     var audio: Data
+    var mimeType: String
 }
 
 actor ScriptedTranscriber: Transcribing {
@@ -163,7 +206,7 @@ actor ScriptedTranscriber: Transcribing {
     }
 
     func transcribe(_ clip: AudioClip, model: GeminiModel, apiKey: String) async throws -> String {
-        calls.append(TranscribeCall(modelID: model.id, apiKey: apiKey, audio: clip.data))
+        calls.append(TranscribeCall(modelID: model.id, apiKey: apiKey, audio: clip.data, mimeType: clip.mimeType))
         guard !results.isEmpty else { throw GeminiError.malformedResponse }
         return try results.removeFirst().get()
     }
@@ -175,6 +218,46 @@ final class GatedTranscriber: Transcribing, @unchecked Sendable {
 
     func transcribe(_ clip: AudioClip, model: GeminiModel, apiKey: String) async throws -> String {
         try await gate.wait().get()
+    }
+}
+
+// MARK: - Compressor mocks
+
+struct CompressionFailure: Error {}
+
+/// Returns scripted results and records the size of each input. With no results
+/// left it fails, so an unexpected compression shows up as a failed dictation.
+actor ScriptedCompressor: AudioCompressing {
+    private var results: [Result<AudioClip, any Error>]
+    private(set) var inputSizes: [Int] = []
+
+    init(_ results: [Result<AudioClip, any Error>]) {
+        self.results = results
+    }
+
+    func compress(_ clip: AudioClip) async throws -> AudioClip {
+        inputSizes.append(clip.data.count)
+        guard !results.isEmpty else { throw CompressionFailure() }
+        return try results.removeFirst().get()
+    }
+}
+
+/// Holds the result until the test releases it, ignoring cancellation, and
+/// records whether the calling task had been cancelled by then.
+final class GatedCompressor: AudioCompressing, @unchecked Sendable {
+    let gate = Gate<AudioClip>()
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var sawCancellation: Bool {
+        lock.withLock { cancelled }
+    }
+
+    func compress(_ clip: AudioClip) async throws -> AudioClip {
+        let result = await gate.wait()
+        let isCancelled = Task.isCancelled
+        lock.withLock { cancelled = isCancelled }
+        return result
     }
 }
 
@@ -319,13 +402,18 @@ struct Harness {
     let sleeper = RecordingSleeper()
     let controller: DictationController
 
-    init(transcriber: Transcribing, configuration: DictationController.Configuration = .init(meterInterval: nil, noticeDuration: nil)) {
+    init(
+        transcriber: Transcribing,
+        compressor: AudioCompressing = ScriptedCompressor([]),
+        configuration: DictationController.Configuration = .init(meterInterval: nil, noticeDuration: nil)
+    ) {
         controller = DictationController(
             recorder: recorder,
             microphone: microphone,
             apiKeys: apiKeys,
             models: models,
             transcriber: transcriber,
+            compressor: compressor,
             focus: focus,
             inserter: inserter,
             clipboard: clipboard,

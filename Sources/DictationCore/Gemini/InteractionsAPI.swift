@@ -6,9 +6,31 @@ public struct InteractionRequestFactory: Sendable {
     /// The documented limit for inline data is 20 MB for the whole request.
     /// Stay below it with some headroom for the JSON envelope.
     public static let maxRequestBodyBytes = 19_000_000
-    public static let requestTimeout: TimeInterval = 120
+    /// Room kept for the model, instructions and schema around the audio (about 3 KB today).
+    static let envelopeAllowance = 64_000
+    /// Longest wait for more data. The response starts only after the whole transcript
+    /// is generated, so this also has to cover processing a 20-minute recording.
+    public static let requestTimeout: TimeInterval = 180
 
     public init() {}
+
+    /// True when audio of this size can be sent as it is. With 16 kHz mono WAV this
+    /// holds up to about 7 minutes 20 seconds; longer recordings are compressed first.
+    public static func fitsInline(audioByteCount: Int) -> Bool {
+        base64Length(audioByteCount) + envelopeAllowance < maxRequestBodyBytes
+    }
+
+    static func base64Length(_ byteCount: Int) -> Int {
+        (byteCount + 2) / 3 * 4
+    }
+
+    /// `max_output_tokens` for general models, thinking included. The preset models
+    /// document a 65,536-token output limit, so half of it leaves room for the
+    /// transcript of 20 minutes of dictation. A custom model's limit is unknown,
+    /// so it keeps the smaller budget used before.
+    static func maxOutputTokens(for model: GeminiModel) -> Int {
+        ModelCatalog.presets.contains { $0.id == model.id } ? 32_768 : 8_192
+    }
 
     public static func endpoint(for engine: TranscriptionEngine) -> URL {
         switch engine {
@@ -25,8 +47,7 @@ public struct InteractionRequestFactory: Sendable {
             throw GeminiError.invalidAPIKeyFormat
         }
         // Base64 grows the payload by a third; reject before encoding anything large.
-        let estimatedAudioBytes = (clip.data.count + 2) / 3 * 4
-        guard estimatedAudioBytes < Self.maxRequestBodyBytes else {
+        guard Self.base64Length(clip.data.count) < Self.maxRequestBodyBytes else {
             throw GeminiError.audioTooLarge
         }
 
@@ -58,7 +79,7 @@ public struct InteractionRequestFactory: Sendable {
                 systemInstruction: TranscriptionPrompt.systemInstruction,
                 generationConfig: GenerationConfig(
                     thinkingLevel: model.thinkingLevel,
-                    maxOutputTokens: 8192,
+                    maxOutputTokens: maxOutputTokens(for: model),
                     transcriptionConfig: nil
                 ),
                 responseFormat: ResponseFormat(

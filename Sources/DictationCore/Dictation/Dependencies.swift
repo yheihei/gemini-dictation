@@ -29,6 +29,13 @@ public protocol AudioRecording: AnyObject {
     var interruptionHandler: (@MainActor (Error) -> Void)? { get set }
 }
 
+/// Re-encodes a recording that is too large to send inline into a smaller format.
+public protocol AudioCompressing: Sendable {
+    /// Returns the compressed recording. Stops promptly when the task is cancelled
+    /// and leaves no temporary files behind.
+    func compress(_ clip: AudioClip) async throws -> AudioClip
+}
+
 @MainActor
 public protocol APIKeyProviding: AnyObject {
     /// The key entered by the user in Settings, or `nil` when none is configured.

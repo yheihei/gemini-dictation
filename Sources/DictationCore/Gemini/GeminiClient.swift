@@ -7,16 +7,29 @@ public protocol HTTPTransport: Sendable {
 
 /// `URLSession` transport with an ephemeral session: no cookies, cache or credential storage.
 public final class URLSessionTransport: HTTPTransport {
+    /// Upper limit for a whole request: uploading up to 19 MB on a slow connection,
+    /// waiting for the transcript of a 20-minute recording and receiving it.
+    /// The user can cancel at any time before that.
+    static let resourceTimeout: TimeInterval = 600
+
     private let session: URLSession
 
-    public init() {
+    public convenience init() {
+        self.init(configuration: Self.defaultConfiguration())
+    }
+
+    init(configuration: URLSessionConfiguration) {
+        session = URLSession(configuration: configuration)
+    }
+
+    static func defaultConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = InteractionRequestFactory.requestTimeout
-        configuration.timeoutIntervalForResource = 180
+        configuration.timeoutIntervalForResource = resourceTimeout
         configuration.urlCache = nil
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
-        session = URLSession(configuration: configuration)
+        return configuration
     }
 
     public func send(_ request: URLRequest) async throws -> (Data, URLResponse) {

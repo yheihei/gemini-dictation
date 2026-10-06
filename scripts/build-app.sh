@@ -33,6 +33,8 @@ binary="$(swift build -c "$configuration" --show-bin-path)/GeminiDictation"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$binary" "$app/Contents/MacOS/GeminiDictation"
+# Drop the debug map, which records the absolute paths of this machine's build folder.
+strip -S "$app/Contents/MacOS/GeminiDictation"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 

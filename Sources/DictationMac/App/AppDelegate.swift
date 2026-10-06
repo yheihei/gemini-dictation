@@ -66,6 +66,7 @@ final class AppComposition {
             apiKeys: keys,
             models: settings,
             transcriber: GeminiClient(transport: URLSessionTransport()),
+            compressor: SystemAudioCompressor(),
             focus: SystemFocusTracker(),
             inserter: inserter,
             clipboard: SystemClipboardWriter()

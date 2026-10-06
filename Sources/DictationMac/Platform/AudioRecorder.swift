@@ -8,8 +8,8 @@ public enum RecorderError: Error, Equatable {
     case interrupted
 }
 
-/// Private scratch space for the recording in progress. Files are deleted as soon
-/// as the audio has been read into memory, and leftovers are purged at launch.
+/// Private scratch space for the recording in progress and its compressed copy. Files are
+/// deleted as soon as the audio has been read into memory, and leftovers are purged at launch.
 public enum TemporaryAudioFiles {
     public static var directory: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("GeminiDictation", isDirectory: true)
@@ -27,14 +27,14 @@ public enum TemporaryAudioFiles {
 
     public static func purge(_ directory: URL = directory) {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        for file in files where file.pathExtension == "wav" {
+        for file in files where ["wav", "m4a"].contains(file.pathExtension) {
             remove(file)
         }
     }
 }
 
 /// Records 16 kHz mono 16-bit PCM WAV, the resolution Gemini uses for audio anyway.
-/// Five minutes is about 9.6 MB, well within the 20 MB inline request limit.
+/// That is 1.92 MB per minute; recordings too large to send inline are compressed first.
 @MainActor
 public final class SystemAudioRecorder: NSObject, AudioRecording {
     public static let settings: [String: Any] = [

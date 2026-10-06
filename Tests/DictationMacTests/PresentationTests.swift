@@ -181,12 +181,15 @@ struct RecordingFormatTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try TemporaryAudioFiles.prepare(directory)
         let wav = directory.appendingPathComponent("left.wav")
+        let compressed = directory.appendingPathComponent("left.m4a")
         let other = directory.appendingPathComponent("keep.txt")
         try WAVFile.encodePCM16(samples: [0, 1, 2], sampleRate: 16_000).write(to: wav)
+        try Data("synthetic".utf8).write(to: compressed)
         try Data("x".utf8).write(to: other)
 
         TemporaryAudioFiles.purge(directory)
         #expect(!FileManager.default.fileExists(atPath: wav.path))
+        #expect(!FileManager.default.fileExists(atPath: compressed.path))
         #expect(FileManager.default.fileExists(atPath: other.path))
 
         let attributes = try FileManager.default.attributesOfItem(atPath: directory.path)

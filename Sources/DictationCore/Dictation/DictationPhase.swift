@@ -71,6 +71,8 @@ public enum DictationFailure: Equatable, Sendable {
     case apiKeyUnavailable
     case microphoneDenied
     case recordingFailed
+    /// A long recording could not be compressed for sending. The original is kept for a retry.
+    case audioConversionFailed
     case transcription(GeminiError)
     case unexpected(String)
 
@@ -84,6 +86,8 @@ public enum DictationFailure: Equatable, Sendable {
             return "マイクの使用が許可されていません。システム設定の「プライバシーとセキュリティ」>「マイク」で許可してください。"
         case .recordingFailed:
             return "録音を開始または継続できませんでした。入力デバイスを確認してください。"
+        case .audioConversionFailed:
+            return "録音を送信用に圧縮できませんでした。再試行してください。"
         case .transcription(let error):
             return error.userMessage
         case .unexpected(let detail):

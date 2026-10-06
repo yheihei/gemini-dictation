@@ -5,6 +5,8 @@ public struct WAVInfo: Sendable, Equatable {
     public var sampleRate: Int
     public var channels: Int
     public var bitsPerSample: Int
+    /// Byte offset of the first sample in the file.
+    public var dataOffset: Int
     public var dataByteCount: Int
     public var duration: TimeInterval
     /// Linear peak amplitude in 0...1. `nil` when the sample format is not 16-bit PCM.
@@ -26,8 +28,12 @@ public enum WAVError: Error, Equatable {
 
 public enum WAVFile {
     /// Parses the RIFF header, measures the duration and finds the peak sample.
+    /// Reads the data in place: a 20-minute recording is 38.4 MB.
     public static func analyze(_ data: Data) throws -> WAVInfo {
-        let bytes = [UInt8](data)
+        try data.withUnsafeBytes { try analyze($0) }
+    }
+
+    private static func analyze(_ bytes: UnsafeRawBufferPointer) throws -> WAVInfo {
         guard bytes.count >= 12,
               bytes[0..<4].elementsEqual("RIFF".utf8),
               bytes[8..<12].elementsEqual("WAVE".utf8) else {
@@ -83,6 +89,7 @@ public enum WAVFile {
             sampleRate: format.sampleRate,
             channels: format.channels,
             bitsPerSample: format.bitsPerSample,
+            dataOffset: dataRange.lowerBound,
             dataByteCount: dataRange.count,
             duration: Double(dataRange.count) / Double(format.byteRate),
             peak: peak
@@ -113,11 +120,11 @@ public enum WAVFile {
         return data
     }
 
-    private static func readUInt16(_ bytes: [UInt8], _ offset: Int) -> UInt16 {
+    private static func readUInt16(_ bytes: UnsafeRawBufferPointer, _ offset: Int) -> UInt16 {
         UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
     }
 
-    private static func readUInt32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
+    private static func readUInt32(_ bytes: UnsafeRawBufferPointer, _ offset: Int) -> UInt32 {
         UInt32(bytes[offset])
             | UInt32(bytes[offset + 1]) << 8
             | UInt32(bytes[offset + 2]) << 16
